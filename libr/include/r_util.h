@@ -136,7 +136,7 @@ typedef struct r_prof_t {
 } RProfile;
 
 /* numbers */
-#define R_NUMCALC_STRSZ 4096
+#define R_NUMCALC_STRSZ 1024
 
 typedef struct {
 	double d;
@@ -369,12 +369,14 @@ R_API ut64 r_num_chs (int cylinder, int head, int sector, int sectorsize);
 R_API int r_num_is_valid_input(RNum *num, const char *input_value);
 R_API ut64 r_num_get_input_value(RNum *num, const char *input_value);
 R_API char* r_num_as_string(RNum *___, ut64 n);
+R_API ut64 r_num_tail(RNum *num, ut64 addr, const char *hex);
 
 #define R_BUF_CUR UT64_MAX
 /* constructors */
 R_API RBuffer *r_buf_new(void);
 R_API RBuffer *r_buf_new_with_bytes(const ut8* bytes, ut64 len);
 R_API RBuffer *r_buf_new_with_pointers (const ut8 *bytes, ut64 len);
+R_API RBuffer *r_buf_new_with_buf(RBuffer *b);
 R_API RBuffer *r_buf_file (const char *file);
 R_API RBuffer *r_buf_mmap (const char *file, int flags);
 R_API RBuffer *r_buf_new_sparse();
@@ -495,11 +497,13 @@ R_API const char *r_str_casestr(const char *a, const char *b);
 R_API const char *r_str_lastbut (const char *s, char ch, const char *but);
 R_API int r_str_split(char *str, char ch);
 R_API char* r_str_replace(char *str, const char *key, const char *val, int g);
+R_API char *r_str_replace_in(char *str, ut32 sz, const char *key, const char *val, int g);
 #define r_str_cpy(x,y) memmove(x,y,strlen(y)+1);
 R_API int r_str_bits (char *strout, const ut8 *buf, int len, const char *bitz);
 R_API ut64 r_str_bits_from_string(const char *buf, const char *bitz);
 R_API int r_str_rwx(const char *str);
 R_API int r_str_replace_char (char *s, int a, int b);
+R_API int r_str_replace_char_once (char *s, int a, int b);
 R_API const char *r_str_rwx_i(int rwx);
 R_API void r_str_writef(int fd, const char *fmt, ...);
 R_API char *r_str_arg_escape (const char *arg);
@@ -534,6 +538,8 @@ R_API ut64 r_str_hash64(const char *str);
 R_API char *r_str_clean(char *str);
 R_API int r_str_nstr(char *from, char *to, int size);
 R_API const char *r_str_lchr(const char *str, char chr);
+R_API const char *r_sub_str_lchr(const char *str, int start, int end, char chr);
+R_API const char *r_sub_str_rchr(const char *str, int start, int end, char chr);
 R_API int r_str_nchr(const char *str, char chr);
 R_API char *r_str_ichr(char *str, char chr);
 R_API int r_str_ccmp(const char *dst, const char *orig, int ch);
@@ -551,6 +557,9 @@ R_API const char * r_str_tok (const char *str1, const char b, size_t len);
 typedef void (*str_operation)(char *c);
 
 R_API int r_str_do_until_token (str_operation op, char *str, const char tok);
+
+R_API void r_str_const_free();
+R_API const char *r_str_const(const char *ptr);
 
 R_API int r_str_re_match(const char *str, const char *reg);
 R_API int r_str_re_replace(const char *str, const char *reg, const char *sub);
@@ -577,6 +586,8 @@ R_API char* r_str_replace_thunked(char *str, char *clean, int *thunk, int clen,
 R_API char *r_hex_from_c(const char *code);
 R_API bool r_str_glob (const char *str, const char *glob);
 R_API int r_str_binstr2bin(const char *str, ut8 *out, int outlen);
+R_API char *r_str_between(const char *str, const char *prefix, const char *suffix);
+
 R_API int r_hex_pair2bin(const char *arg);
 R_API int r_hex_str2binmask(const char *in, ut8 *out, ut8 *mask);
 R_API int r_hex_str2bin(const char *in, ut8 *out);
@@ -620,7 +631,7 @@ R_API int r_sys_arch_id(const char *arch);
 R_API bool r_sys_arch_match(const char *archstr, const char *arch);
 R_API RList *r_sys_dir(const char *path);
 R_API void r_sys_perror(const char *fun);
-#if __WINDOWS__
+#if __WINDOWS__ && !defined(__CYGWIN__)
 #define r_sys_mkdir(x) (CreateDirectory(x,NULL)!=0)
 #define r_sys_mkdir_failed() (GetLastError () != ERROR_ALREADY_EXISTS)
 #else

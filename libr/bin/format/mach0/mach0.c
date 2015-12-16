@@ -107,6 +107,24 @@ static int init_hdr(struct MACH0_(obj_t)* bin) {
 		"xxxxddx "
 		"magic cputype cpusubtype filetype ncmds sizeofcmds flags", 0);
 	sdb_num_set (bin->kv, "mach0_header.offset", 0, 0); // wat about fatmach0?
+	sdb_set (bin->kv, "mach_filetype.cparse", "enum mach_filetype{MH_OBJECT=1,"
+			"MH_EXECUTE=2, MH_FVMLIB=3, MH_CORE=4, MH_PRELOAD=5, MH_DYLIB=6,"
+			"MH_DYLINKER=7, MH_BUNDLE=8, MH_DYLIB_STUB=9, MH_DSYM=10,"
+			"MH_KEXT_BUNDLE=11}"
+			,0);
+	sdb_set (bin->kv, "mach_flags.cparse", "enum mach_flags{MH_NOUNDEFS=1,"
+			"MH_INCRLINK=2,MH_DYLDLINK=4,MH_BINDATLOAD=8,MH_PREBOUND=0x10,"
+			"MH_SPLIT_SEGS=0x20,MH_LAZY_INIT=0x40,MH_TWOLEVEL=0x80,"
+			"MH_FORCE_FLAT=0x100,MH_NOMULTIDEFS=0x200,MH_NOFIXPREBINDING=0x400,"
+			"MH_PREBINDABLE=0x800, MH_ALLMODSBOUND=0x1000,"
+			"MH_SUBSECTIONS_VIA_SYMBOLS=0x2000,"
+			"MH_CANONICAL=0x4000,MH_WEAK_DEFINES=0x8000,"
+			"MH_BINDS_TO_WEAK=0x10000,MH_ALLOW_STACK_EXECUTION=0x20000,"
+			"MH_ROOT_SAFE=0x40000,MH_SETUID_SAFE=0x80000,"
+			"MH_NO_REEXPORTED_DYLIBS=0x100000,MH_PIE=0x200000,"
+			"MH_DEAD_STRIPPABLE_DYLIB=0x400000,"
+			"MH_HAS_TLV_DESCRIPTORS=0x800000,"
+			"MH_NO_HEAP_EXECUTION=0x1000000 }",0);
 	if (len == -1) {
 		eprintf ("Error: read (hdr)\n");
 		return false;
@@ -435,7 +453,7 @@ static int parse_thread(struct MACH0_(obj_t)* bin, struct load_command *lc, ut64
 	case CPU_TYPE_POWERPC:
 	case CPU_TYPE_POWERPC64:
 		if (flavor == X86_THREAD_STATE32) {
-			if (ptr_thread + sizeof (struct ppc_thread_state32))
+			if (ptr_thread + sizeof (struct ppc_thread_state32) > bin->size)
 				return false;
 			if ((len = r_buf_fread_at (bin->b, ptr_thread,
 				(ut8*)&bin->thread_state.ppc_32, bin->endian?"40I":"40i", 1)) == -1) {
@@ -445,7 +463,7 @@ static int parse_thread(struct MACH0_(obj_t)* bin, struct load_command *lc, ut64
 			pc = bin->thread_state.ppc_32.srr0;
 			pc_offset = ptr_thread + r_offsetof(struct ppc_thread_state32, srr0);
 		} else if (flavor == X86_THREAD_STATE64) {
-			if (ptr_thread + sizeof (struct ppc_thread_state64))
+			if (ptr_thread + sizeof (struct ppc_thread_state64) > bin->size)
 				return false;
 			if ((len = r_buf_fread_at (bin->b, ptr_thread,
 				(ut8*)&bin->thread_state.ppc_64, bin->endian?"34LI3LI":"34li3li", 1)) == -1) {
@@ -600,8 +618,7 @@ static int init_items(struct MACH0_(obj_t)* bin) {
 
 		// TODO: a different format for each cmd
 		sdb_num_set (bin->kv, sdb_fmt (0, "mach0_cmd_%d.offset", i), off, 0);
-		sdb_set (bin->kv, sdb_fmt (0, "mach0_cmd_%d.format", i),
-			"xd cmd size", 0);
+		sdb_set (bin->kv, sdb_fmt (0, "mach0_cmd_%d.format", i), "xd cmd size", 0);
 
 		//eprintf ("%d\n", lc.cmd);
 		switch (lc.cmd) {
@@ -688,6 +705,7 @@ static int init_items(struct MACH0_(obj_t)* bin) {
 				sdb_num_set (bin->kv, "cryptid", eic.cryptid, 0);
 				sdb_num_set (bin->kv, "cryptoff", eic.cryptoff, 0);
 				sdb_num_set (bin->kv, "cryptsize", eic.cryptsize, 0);
+				sdb_num_set (bin->kv, "cryptheader", off, 0);
 			} }
 			break;
 		case LC_LOAD_DYLINKER:
@@ -900,27 +918,25 @@ static int prot2perm (int x) {
 
 struct section_t* MACH0_(get_sections)(struct MACH0_(obj_t)* bin) {
 	struct section_t *sections;
-	char segname[17], sectname[17];
+	char segname[32], sectname[32];
 	int i, j, to;
 
 	if (!bin || !bin->sects)
 		return NULL;
 	to = R_MIN (bin->nsects, 128); // limit number of sections here to avoid fuzzed bins
-	if (to<1)
+	if (to < 1)
 		return NULL;
 	if (!(sections = malloc ((bin->nsects + 1) * sizeof (struct section_t))))
 		return NULL;
-	for (i = 0; i<to; i++) {
+	for (i = 0; i < to; i++) {
 		sections[i].offset = (ut64)bin->sects[i].offset;
 		sections[i].addr = (ut64)bin->sects[i].addr;
 		sections[i].size = (ut64)bin->sects[i].size;
 		sections[i].align = bin->sects[i].align;
 		sections[i].flags = bin->sects[i].flags;
-		strncpy (segname, bin->sects[i].segname, sizeof (segname)-1);
-		strncpy (sectname, bin->sects[i].sectname, sizeof (sectname)-1);
+		r_str_ncpy (sectname, bin->sects[i].sectname, sizeof (sectname)-1);
 		// hack to support multiple sections with same name
 		snprintf (segname, sizeof (segname), "%d", i); // wtf
-		snprintf (sectname, sizeof (sectname), "%s", bin->sects[i].sectname);
 		for (j=0; j<bin->nsegs; j++) {
 			if (sections[i].addr >= bin->segs[j].vmaddr &&
 				sections[i].addr < (bin->segs[j].vmaddr + bin->segs[j].vmsize)) {
@@ -1394,6 +1410,7 @@ struct reloc_t* MACH0_(get_relocs)(struct MACH0_(obj_t)* bin) {
 					eprintf ("Error: BIND_OPCODE_SET_SEGMENT_AND_OFFSET_ULEB"
 						" has unexistent segment %d\n", seg_idx);
 					addr = 0LL;
+					return 0; // early exit to avoid future mayhem
 				} else {
 					addr = bin->segs[seg_idx].vmaddr + ULEB();
 					segmentAddress = bin->segs[seg_idx].vmaddr \

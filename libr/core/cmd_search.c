@@ -202,7 +202,6 @@ R_API int r_core_search_prelude(RCore *core, ut64 from, ut64 to, const ut8 *buf,
 			break;
 		}
 	}
-	eprintf ("Analized %d functions based on preludes\n", preludecnt);
 	free (b);
 	return preludecnt;
 }
@@ -235,17 +234,22 @@ R_API int r_core_search_preludes(RCore *core) {
 	} else if (strstr (arch, "x86")) {
 		switch (bits) {
 		case 32:
-			ret = r_core_search_prelude (core, from, to,
+			r_core_search_prelude (core, from, to,
 				(const ut8 *)"\x55\x89\xe5", 3, NULL, 0);
+			r_core_search_prelude (core, from, to,
+				(const ut8 *)"\x55\x8b\xec", 3, NULL, 0);
 			break;
 		case 64:
-			ret = r_core_search_prelude (core, from, to,
-				(const ut8 *)"\x55\x48\x89\xe5", 3, NULL, 0);
+			r_core_search_prelude (core, from, to,
+				(const ut8 *)"\x55\x48\x89\xe5", 4, NULL, 0);
+			r_core_search_prelude (core, from, to,
+				(const ut8 *)"\x55\x48\x8b\xec", 4, NULL, 0);
 			break;
 		default:
 			eprintf ("ap: Unsupported bits: %d\n", bits);
 		}
 	} else eprintf ("ap: Unsupported asm.arch and asm.bits\n");
+	eprintf ("Analyzed %d functions based on preludes\n", ret);
 	return ret;
 }
 
@@ -269,6 +273,7 @@ static int __cb_hit(RSearchKeyword *kw, void *user, ut64 addr) {
 			return false;
 		}
 	}
+
 	if (searchshow && kw && kw->keyword_length > 0) {
 		int len, i, extra, mallocsize;
 		ut32 buf_sz = kw->keyword_length;
@@ -278,7 +283,8 @@ static int __cb_hit(RSearchKeyword *kw, void *user, ut64 addr) {
 		switch (kw->type) {
 		case R_SEARCH_KEYWORD_TYPE_STRING:
 			str = malloc (kw->keyword_length + 20);
-			r_core_read_at (core, addr, (ut8*)str, kw->keyword_length);
+			r_core_read_at (core, base_addr + addr,
+				(ut8*)str, kw->keyword_length);
 			p = r_str_utf16_encode (str, kw->keyword_length);
 			s = r_str_newf ("\"%s\"", p);
 			free (p);
@@ -290,10 +296,10 @@ static int __cb_hit(RSearchKeyword *kw, void *user, ut64 addr) {
 			if (str) {
 				p = str;
 				memset (str, 0, len);
-				r_core_read_at (core, addr, buf, kw->keyword_length);
+				r_core_read_at (core, base_addr + addr, buf, kw->keyword_length);
 				if (json) {
 					strcpy (str, "0x");
-					p = str+2;
+					p = str + 2;
 				}
 				for (i=0; i<len; i++) {
 					sprintf (p, "%02x", buf[i]);
@@ -326,18 +332,18 @@ static int __cb_hit(RSearchKeyword *kw, void *user, ut64 addr) {
 			if (searchflags)
 				r_cons_printf ("%s%d_%d\n", searchprefix, kw->kwidx, kw->count);
 			else r_cons_printf ("f %s%d_%d %d 0x%08"PFMT64x"\n", searchprefix,
-				kw->kwidx, kw->count, kw->keyword_length, addr);
+				kw->kwidx, kw->count, kw->keyword_length, base_addr + addr);
 		}
 	}
 	if (first_hit)
 		first_hit = false;
 	if (searchflags) {
 		const char *flag = sdb_fmt (0, "%s%d_%d", searchprefix, kw->kwidx, kw->count);
-		r_flag_set (core->flags, flag, addr, kw->keyword_length, 1);
+		r_flag_set (core->flags, flag, base_addr + addr, kw->keyword_length, 1);
 	}
 	if (!strnull (cmdhit)) {
 		ut64 here = core->offset;
-		r_core_seek (core, addr, true);
+		r_core_seek (core, base_addr + addr, true);
 		r_core_cmd (core, cmdhit, 0);
 		r_core_seek (core, here, true);
 	}
@@ -665,7 +671,7 @@ static RList* construct_rop_gadget(RCore *core, ut64 addr, ut8 *buf, int idx,
 		strncpy (grep_str, start, end - start);
 		if (regex) {
 			// get the first regexp.
-			if (r_list_length(rx_list) > 0) {
+			if (r_list_length (rx_list) > 0) {
 				rx = r_list_get_n(rx_list, count++);
 			}
 		}
@@ -695,7 +701,8 @@ static RList* construct_rop_gadget(RCore *core, ut64 addr, ut8 *buf, int idx,
 		idx += asmop.size;
 		addr += asmop.size;
 		if (rx) {
-			grep_find = r_regex_exec(rx, asmop.buf_asm, 0, 0, 0);
+			//grep_find = r_regex_exec (rx, asmop.buf_asm, 0, 0, 0);
+			grep_find = !r_regex_match (grep, "e", asmop.buf_asm);
 			search_hit = (end && grep && (grep_find < 1));
 		} else {
 			search_hit = (end && grep && strstr (asmop.buf_asm, grep_str));
@@ -749,7 +756,7 @@ static void print_rop (RCore *core, RList *hitlist, char mode, int *json_first) 
 	const char *otype;
 	RCoreAsmHit *hit = NULL;
 	RListIter *iter;
-	char *buf_asm, *buf_hex;
+	char *buf_asm;
 	unsigned int size = 0;
 	RAnalOp analop = {0};
 	RAsmOp asmop;
@@ -807,7 +814,12 @@ static void print_rop (RCore *core, RList *hitlist, char mode, int *json_first) 
 		r_list_foreach (hitlist, iter, hit) {
 			char *comment = rop_comments ?r_meta_get_string (core->anal,
 					R_META_TYPE_COMMENT, hit->addr) : NULL;
-			ut8 *buf = malloc (hit->len);
+			if (hit->len<0) {
+				eprintf ("Invalid hit length here\n");
+				continue;
+			}
+			ut8 *buf = malloc (1 + hit->len);
+			buf[hit->len] = 0;
 			r_core_read_at (core, hit->addr, buf, hit->len);
 			r_asm_set_pc (core->assembler, hit->addr);
 			r_asm_disassemble (core->assembler, &asmop, buf, hit->len);
@@ -815,25 +827,22 @@ static void print_rop (RCore *core, RList *hitlist, char mode, int *json_first) 
 			if (colorize) {
 				buf_asm = r_print_colorize_opcode (asmop.buf_asm,
 						core->cons->pal.reg, core->cons->pal.num);
-				buf_hex = r_print_colorize_opcode (asmop.buf_hex,
-						core->cons->pal.reg, core->cons->pal.num);
 				otype = r_print_color_op_type (core->print, analop.type);
 				if (comment) {
-					r_cons_printf ("  0x%08"PFMT64x" %s%18s  %s%s ; %s\n",
-							hit->addr, otype, buf_hex, buf_asm, Color_RESET, comment);
+					r_cons_printf ("  0x%08"PFMT64x" %18s%s  %s%s ; %s\n",
+							hit->addr, asmop.buf_hex, otype, buf_asm, Color_RESET, comment);
 				} else {
-					r_cons_printf ("  0x%08"PFMT64x" %s%18s  %s%s\n",
-							hit->addr, otype, buf_hex, buf_asm, Color_RESET);
+					r_cons_printf ("  0x%08"PFMT64x" %18s%s  %s%s\n",
+							hit->addr, asmop.buf_hex, otype, buf_asm, Color_RESET);
 				}
 				free (buf_asm);
-				free (buf_hex);
 			} else {
 				if (comment) {
 					r_cons_printf ("  0x%08"PFMT64x" %18s  %s ; %s\n",
 							hit->addr, asmop.buf_hex, asmop.buf_asm, comment);
 				} else {
-				r_cons_printf ("  0x%08"PFMT64x" %18s  %s\n",
-						hit->addr, asmop.buf_hex, asmop.buf_asm);
+					r_cons_printf ("  0x%08"PFMT64x" %18s  %s\n",
+							hit->addr, asmop.buf_hex, asmop.buf_asm);
 				}
 			}
 			free (buf);
@@ -923,6 +932,8 @@ static int r_core_search_rop(RCore *core, ut64 from, ut64 to, int opt, const cha
 		increment = 4;
 	else if (!strcmp (arch, "arm")) // ARM has no jump-in-the-middle
 		increment = r_config_get_i(core->config, "asm.bits")==16?2:4;
+	else if (!strcmp (arch, "avr")) // AVR is halfword aligned.
+		increment = 2;
 
 	//Options, like JSON, linear, ...
 	grep_arg = strchr (grep, ' ');
@@ -1372,7 +1383,6 @@ static void do_asm_search(RCore *core, struct search_parameters *param, const ch
 		if (outmode == 0) hits = NULL;
 		else hits = r_core_asm_strsearch (core, input+2,
 				param->from, param->to, maxhits, regexp);
-
 		if (hits) {
 			r_list_foreach (hits, iter, hit) {
 				if (r_cons_singleton()->breaked)
@@ -1394,9 +1404,8 @@ static void do_asm_search(RCore *core, struct search_parameters *param, const ch
 					break;
 				}
 				if (searchflags) {
-					char flag[64];
-					snprintf (flag, sizeof (flag), "%s%d_%d", searchprefix, kwidx, count);
-					r_flag_set (core->flags, flag, hit->addr, hit->len, 1);
+					const char *flagname = sdb_fmt (0, "%s%d_%d", searchprefix, kwidx, count);
+					r_flag_set (core->flags, flagname, hit->addr, hit->len, 1);
 				}
 				count++;
 			}

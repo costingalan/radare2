@@ -774,13 +774,13 @@ jmp $$ + 4 + ( [delta] * 2 )
 	case ARM_INS_BL:
 	case ARM_INS_BLX:
 		op->type = R_ANAL_OP_TYPE_CALL;
-		op->jump = IMM(0);
+		op->jump = IMM(0) & UT32_MAX;
 		op->fail = addr + op->size;
 		break;
 	case ARM_INS_CBZ:
 	case ARM_INS_CBNZ:
 		op->type = R_ANAL_OP_TYPE_CJMP;
-		op->jump = IMM(1);
+		op->jump = IMM(1) & UT32_MAX;
 		op->fail = addr + op->size;
 		if (op->jump == op->fail) {
 			op->type = R_ANAL_OP_TYPE_JMP;
@@ -798,7 +798,7 @@ jmp $$ + 4 + ( [delta] * 2 )
 			op->type = R_ANAL_OP_TYPE_CJMP;
 			op->fail = addr+op->size;
 		}
-		op->jump = IMM(0);
+		op->jump = IMM(0) & UT32_MAX;
 		break;
 	case ARM_INS_BX:
 	case ARM_INS_BXJ:
@@ -875,18 +875,18 @@ static int set_reg_profile(RAnal *anal) {
 	const char *p;
 	if (anal->bits == 64) {
 		p = \
-		"=pc	pc\n"
-		"=sp	sp\n"
-		"=bp	x29\n"
-		"=a0	x0\n"
-		"=a1	x1\n"
-		"=a2	x2\n"
-		"=a3	x3\n"
-		"=zf	zf\n"
-		"=sf	nf\n"
-		"=of	vf\n"
-		"=cf	cf\n"
-		"=sn	ox0\n"
+		"=PC	pc\n"
+		"=SP	sp\n"
+		"=BP	x29\n"
+		"=A0	x0\n"
+		"=A1	x1\n"
+		"=A2	x2\n"
+		"=A3	x3\n"
+		"=ZF	zf\n"
+		"=SF	nf\n"
+		"=OF	vf\n"
+		"=CF	cf\n"
+		"=SN	x0\n"
 
 		/* 32bit sub-registers */
 		"gpr	w0	.32	0	0\n"
@@ -957,22 +957,23 @@ static int set_reg_profile(RAnal *anal) {
 		"gpr	lr	.64	240	0\n" // lr = x30
 		"gpr	sp	.64	248	0\n"
 		"gpr	zr	.64	248	0\n" // zr = sp (x31)
-		"gpr	cpsr	.64	256	0\n"
-		"gpr	pc	.64	272	0\n"
+		"gpr	pc	.64	256	0\n"
+		"gpr	cpsr	.64	264	0\n"
+		"gpr	pstate	.64	264	0\n" // x0
 		// probably wrong
-		"gpr	nf	.1	.256	0	sign\n" // msb bit of last op
-		"gpr	zf	.1	.257	0	zero\n" // set if last op is 0
-		"gpr	cf	.1	.258	0	carry\n" // set if last op carries
-		"gpr	vf	.1	.515	0	overflow\n"; // set if overflows
+		"gpr	nf	.1	.264	0	sign\n" // msb bit of last op
+		"gpr	zf	.1	.265	0	zero\n" // set if last op is 0
+		"gpr	cf	.1	.268	0	carry\n" // set if last op carries
+		"gpr	vf	.1	.269	0	overflow\n"; // set if overflows
 	} else {
 		p = \
-		"=pc	r15\n"
-		"=sp	r14\n" // XXX
-		"=bp	fp\n" // XXX
-		"=a0	r0\n"
-		"=a1	r1\n"
-		"=a2	r2\n"
-		"=a3	r3\n"
+		"=PC	r15\n"
+		"=SP	r14\n" // XXX
+		"=BP	fp\n" // XXX
+		"=A0	r0\n"
+		"=A1	r1\n"
+		"=A2	r2\n"
+		"=A3	r3\n"
 		"gpr	sl	.32	40	0\n" // rl0
 		"gpr	fp	.32	44	0\n" // r11
 		"gpr	ip	.32	48	0\n" // r12

@@ -36,11 +36,11 @@ static int r_print_stereogram_private(const char *bump, int w, int h, char *out,
 	const char *string = "Az+|.-=/^@_pT";
 	const int string_len = strlen (string);
 
-	if (!bump || !out)
-		return 0;
 	int x, y, s, l = 0, l2 = 0, ch;
 	int skip = 7;
 	int bumpi = 0, outi = 0;
+	if (!bump || !out)
+		return 0;
 	for (y = 0; bump[bumpi] && outi<size; y++) {
 		l = l2 = 0;
 		for (x = 0; bump[bumpi] && outi<size && x<w; x++) {
@@ -278,7 +278,7 @@ R_API char *r_print_hexpair(RPrint *p, const char *str, int n) {
 // TODO: Use r_cons primitives here
 #define memcat(x,y) { memcpy(x,y,strlen(y));x+=strlen(y); }
 	//for (s=str, d=dst; *s; s+=2, d+=2, i++) {
-	for (s=str, i=0 ; *s; s+=2, d+=2, i++) {
+	for (s=str, i=0 ; s[0]; s+=2, d+=2, i++) {
 		if (p->cur_enabled) {
 			if (i==ocur-n)
 				//memcat (d, "\x1b[27;47;30m");
@@ -294,16 +294,17 @@ R_API char *r_print_hexpair(RPrint *p, const char *str, int n) {
 			else if (s[0]=='f' && s[1]=='f') lastcol = color_0xff;
 			else {
 				ch = r_hex_pair2bin (s);
+				if (ch==-1) break;
 				//sscanf (s, "%02x", &ch); // XXX can be optimized
-				if (IS_PRINTABLE (ch))
+				if (IS_PRINTABLE (ch)) {
 					lastcol = color_text;
-				else lastcol = color_other;
+				} else lastcol = color_other;
 			}
 			memcat (d, lastcol);
 		}
 		memcpy (d, s, 2);
 		if (bs) {
-			memcpy (d+2, " ",1);
+			memcpy (d + 2, " ", 1);
 			d++;
 		}
 	}
@@ -632,11 +633,16 @@ R_API void r_print_hexdump(RPrint *p, ut64 addr, const ut8 *buf, int len, int ba
 						printfmt (j%2?"   ":"  ");
 					}
 				} else {
-					printfmt (j%2?"   ":"  ");
+					if (base == 10) {
+						printfmt (j%2?"     ":"  ");
+					} else {
+						printfmt (j%2?"   ":"  ");
+					}
 				}
 				continue;
 			}
 			if (p && (base == 32 || base == 64)) {
+				int left = len - i;
 				/* TODO: check step. it should be 2/4 for base(32) and 8 for
 				 *       base(64) */
 				ut64 n = 0;
@@ -647,6 +653,7 @@ R_API void r_print_hexdump(RPrint *p, ut64 addr, const ut8 *buf, int len, int ba
 				} else {
 					sz_n = step == 2 ? sizeof (ut16) : sizeof (ut32);
 				}
+				sz_n = R_MIN (left, sz_n);
 				r_mem_copyendian ((ut8*)&n, buf+j, sz_n, !p->big_endian);
 				r_print_cursor (p, j, 1);
 				// stub for colors
@@ -987,8 +994,8 @@ R_API void r_print_fill(RPrint *p, const ut8 *arr, int size) {
 	p->cb_printf ("\n");
 	for (i=0; i<size; i++) {
 		ut8 next = (i+1<size)? arr[i+1]:0;
-		p->cb_printf ("%02x %04x |", i, arr[i]);
 			int base = 0;
+		p->cb_printf ("%02x %04x |", i, arr[i]);
 			if (next<INC) base = 1;
 		if (next<arr[i]) {
 			//if (arr[i]>0 && i>0) p->cb_printf ("  ");

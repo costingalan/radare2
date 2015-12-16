@@ -108,10 +108,13 @@ static int replace(int argc, const char *argv[], char *newstr) {
 		if (!strcmp (ops[i].op, argv[0])) {
 			for (j=k=0; ops[i].str[j]!='\0'; j++, k++) {
 				if (ops[i].str[j]>='0' && ops[i].str[j]<='9') {
-					const char *w = argv[ ops[i].str[j]-'0' ];
-					if (w != NULL) {
-						strcpy (newstr+k, w);
-						k += strlen(w)-1;
+					int idx = ops[i].str[j]-'0';
+					if (idx<argc) {
+						const char *w = argv[idx];
+						if (w) {
+							strcpy (newstr + k, w);
+							k += strlen (w) - 1;
+						}
 					}
 				} else newstr[k] = ops[i].str[j];
 			}
@@ -207,7 +210,7 @@ static int parse(RParse *p, const char *data, char *str) {
 	return true;
 }
 
-static int varsub(RParse *p, RAnalFunction *f, char *data, char *str, int len) {
+static bool varsub(RParse *p, RAnalFunction *f, ut64 addr, int oplen, char *data, char *str, int len) {
 	RAnalVar *var;
 	RListIter *iter;
 	char oldstr[64], newstr[64];
@@ -293,14 +296,10 @@ static int varsub(RParse *p, RAnalFunction *f, char *data, char *str, int len) {
 	return true;
 }
 
-struct r_parse_plugin_t r_parse_plugin_arm_pseudo = {
+RParsePlugin r_parse_plugin_arm_pseudo = {
 	.name = "arm.pseudo",
 	.desc = "ARM/ARM64 pseudo syntax",
-	.init = NULL,
-	.fini = NULL,
 	.parse = parse,
-	.assemble = NULL,
-	.filter = NULL,
 	.varsub = &varsub,
 };
 

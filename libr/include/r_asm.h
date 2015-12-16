@@ -116,8 +116,8 @@ typedef struct r_asm_plugin_t {
 	char *license;
 	void *user; // user data pointer
 	int bits;
-	_Bool (*init)(void *user);
-	_Bool (*fini)(void *user);
+	bool (*init)(void *user);
+	bool (*fini)(void *user);
 	int (*disassemble)(RAsm *a, RAsmOp *op, const ut8 *buf, int len);
 	int (*assemble)(RAsm *a, RAsmOp *op, const char *buf);
 	RAsmModifyCallback modify;
@@ -186,7 +186,6 @@ extern RAsmPlugin r_asm_plugin_ppc_cs;
 extern RAsmPlugin r_asm_plugin_sparc_gnu;
 extern RAsmPlugin r_asm_plugin_avr;
 extern RAsmPlugin r_asm_plugin_dalvik;
-extern RAsmPlugin r_asm_plugin_msil;
 extern RAsmPlugin r_asm_plugin_sh;
 extern RAsmPlugin r_asm_plugin_z80;
 extern RAsmPlugin r_asm_plugin_i8080;
@@ -221,6 +220,8 @@ extern RAsmPlugin r_asm_plugin_hppa_gnu;
 extern RAsmPlugin r_asm_plugin_v810;
 extern RAsmPlugin r_asm_plugin_mcs96;
 extern RAsmPlugin r_asm_plugin_lm32;
+extern RAsmPlugin r_asm_plugin_riscv;
+extern RAsmPlugin r_asm_plugin_vax;
 #endif
 
 #ifdef __cplusplus

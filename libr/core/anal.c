@@ -4,19 +4,18 @@
 #include <r_list.h>
 #include <r_flags.h>
 #include <r_core.h>
+#include <r_bin.h>
 
 #include <string.h>
 
-//#define ANALBS 4096
-#define ANALBS 1024
 #define HASNEXT_FOREVER 1
 
 #define in_function(fn,y) ((y) >= (fn)->addr && (y) < ((fn)->addr + (fn)->size))
 
 #define HINTCMD_ADDR(hint,x,y) if(hint->x) \
-	r_cons_printf (y"@0x%"PFMT64x"\n", hint->x, hint->addr)
-#define HINTCMD(hint,x,y) if(hint->x) \
-	r_cons_printf (y"\n", hint->x)
+	r_cons_printf (y" @ 0x%"PFMT64x"\n", hint->x, hint->addr)
+#define HINTCMD(hint,x,y,json) if(hint->x) \
+	r_cons_printf (y"%s", hint->x, json ? "" : "\n")
 
 typedef struct {
 	RAnal *a;
@@ -204,17 +203,12 @@ R_API char *r_core_anal_fcn_autoname(RCore *core, ut64 addr, int dump) {
 	return NULL;
 }
 
-static int cmpaddr (const void *_a, const void *_b) {
-	const RAnalBlock *a = _a, *b = _b;
-	return (a->addr > b->addr);
-}
-
-#if 0
+/*
 static int iscodesection(RCore *core, ut64 addr) {
 	RIOSection *s = r_io_section_vget (core->io, addr);
 	return (s && s->rwx & R_IO_EXEC)? 1: 0;
 }
-#endif
+*/
 
 static ut64 *next_append (ut64 *next, int *nexti, ut64 v) {
 	next = realloc (next, sizeof (ut64) * (1 + *nexti));
@@ -224,18 +218,91 @@ static ut64 *next_append (ut64 *next, int *nexti, ut64 v) {
 	return next;
 }
 
+static void r_anal_set_stringrefs(RCore *core, RAnalFunction *fcn) {
+	RListIter *iter;
+	RAnalRef *ref;
+	r_list_foreach (fcn->refs, iter, ref) {
+		if (ref->type == R_ANAL_REF_TYPE_DATA &&
+				r_bin_is_string(core->bin, ref->addr))
+			ref->type = R_ANAL_REF_TYPE_STRING;
+	}
+}
+
+static int r_anal_try_get_fcn(RCore *core, RAnalRef *ref, int fcndepth, int refdepth) {
+	ut8 *buf;
+	ut16 bufsz = 1000;
+	RIOSection *sec;
+	if (!refdepth) return 1;
+	sec = r_io_section_vget (core->io, ref->addr);
+	if (!sec) return 1;
+	buf = calloc (bufsz, 1);
+	if (!buf) {
+		eprintf ("Error: malloc (buf)\n");
+		return 0;
+	}
+	r_io_read_at (core->io, ref->addr, buf, bufsz);
+
+	if (sec->rwx & R_IO_EXEC &&
+			check_fcn (core->anal, buf, bufsz, ref->addr, sec->vaddr, sec->vaddr + sec->vsize)) {
+		if (core->anal->limit) {
+			if (ref->addr < core->anal->limit->from || ref->addr > core->anal->limit->to) {
+				free(buf);
+				return 1;
+			}
+		}
+		r_core_anal_fcn (core, ref->addr, ref->at, ref->type, fcndepth-1);
+
+	} else {
+		ut64 offs, sz = core->anal->bits >> 3;
+		RAnalRef ref1;
+		ref1.type = R_ANAL_REF_TYPE_DATA;
+		ref1.at = ref->addr;
+		ref1.addr = 0;
+		for (offs = 0; offs < bufsz; offs += sz, ref1.at += sz) {
+			r_mem_copyendian ((ut8*)&ref1.addr, buf + offs, sz, !core->anal->big_endian);
+			r_anal_try_get_fcn (core, &ref1, fcndepth, refdepth-1);
+		}
+	}
+
+	free(buf);
+	return 1;
+}
+
+static int r_anal_analyze_fcn_refs(RCore *core, RAnalFunction *fcn, int depth) {
+	RListIter *iter, *tmp;
+	RAnalRef *ref;
+
+	r_list_foreach_safe (fcn->refs, iter, tmp, ref) {
+		if (ref->addr != UT64_MAX) {
+			switch (ref->type) {
+			case 'd':
+				if (core->anal->opt.followdatarefs) {
+					r_anal_try_get_fcn (core, ref, depth, 2);
+				}
+				break;
+			case R_ANAL_REF_TYPE_CODE:
+			case R_ANAL_REF_TYPE_CALL:
+				r_core_anal_fcn (core, ref->addr, ref->at, ref->type, depth-1);
+				break;
+			default:
+				break;
+			}
+			// TODO: fix memleak here, fcn not freed even though it is
+			// added in core->anal->fcns which is freed in r_anal_free()
+		}
+	}
+
+	return 1;
+}
+
 static int core_anal_fcn(RCore *core, ut64 at, ut64 from, int reftype, int depth) {
 	int has_next = r_config_get_i (core->config, "anal.hasnext");
-	RAnalFunction *fcn;
 	RAnalHint *hint;
-	RListIter *iter;
-	int buflen, fcnlen;
+	ut8 *buf = NULL;
 	int i, nexti = 0;
 	ut64 *next = NULL;
-	ut8 *buf;
-
-
-	fcn = r_anal_fcn_new ();
+	int buflen, fcnlen;
+	RAnalFunction *fcn = r_anal_fcn_new ();
 	if (!fcn) {
 		eprintf ("Error: new (fcn)\n");
 		return false;
@@ -249,7 +316,7 @@ static int core_anal_fcn(RCore *core, ut64 at, ut64 from, int reftype, int depth
 	fcn->addr = at;
 	fcn->size = 0;
 	fcn->name = r_str_newf ("fcn.%08"PFMT64x, at);
-	buf = malloc (ANALBS);
+	buf = malloc (core->anal->opt.bb_max_size);
 	if (!buf) {
 		eprintf ("Error: malloc (buf)\n");
 		goto error;
@@ -266,7 +333,7 @@ static int core_anal_fcn(RCore *core, ut64 at, ut64 from, int reftype, int depth
 		}
 		// real read.
 		// this is unnecessary if its contiguous
-		buflen = r_io_read_at (core->io, at+delta, buf, ANALBS);
+		buflen = r_io_read_at (core->io, at+delta, buf, core->anal->opt.bb_max_size);
 		if (core->io->va && !core->io->raw) {
 			if (!r_io_is_valid_offset (core->io, at+delta, !core->anal->opt.noncode)) {
 				goto error;
@@ -275,6 +342,7 @@ static int core_anal_fcn(RCore *core, ut64 at, ut64 from, int reftype, int depth
 		if (r_cons_singleton ()->breaked)
 			break;
 		fcnlen = r_anal_fcn (core->anal, fcn, at+delta, buf, buflen, reftype);
+		if (core->anal->opt.searchstringrefs) r_anal_set_stringrefs(core, fcn);
 		if (fcnlen<0) {
 			switch (fcnlen) {
 			case R_ANAL_RET_ERROR:
@@ -298,6 +366,8 @@ static int core_anal_fcn(RCore *core, ut64 at, ut64 from, int reftype, int depth
 
 		if (fcnlen == R_ANAL_RET_ERROR ||
 			(fcnlen == R_ANAL_RET_END && fcn->size < 1)) { /* Error analyzing function */
+			if (core->anal->opt.followbrokenfcnsrefs)
+				r_anal_analyze_fcn_refs(core, fcn, depth);
 			goto error;
 		} else if (fcnlen == R_ANAL_RET_END) { /* Function analysis complete */
 			f = r_flag_get_i2 (core->flags, fcn->addr);
@@ -325,7 +395,6 @@ static int core_anal_fcn(RCore *core, ut64 at, ut64 from, int reftype, int depth
 			} else {
 				fcn->depth = 256 - fcn->depth;
 			}
-			r_list_sort (fcn->bbs, &cmpaddr);
 
 			/* New function: Add initial xref */
 			if (from != UT64_MAX) {
@@ -364,23 +433,7 @@ static int core_anal_fcn(RCore *core, ut64 at, ut64 from, int reftype, int depth
 					}
 				}
 			}
-			r_list_foreach (fcn->refs, iter, ref) {
-				if (ref->addr != UT64_MAX) {
-					switch (ref->type) {
-					case 'd':
-						// XXX UNUSED iscodesection (core, ref->at);
-						break;
-					case R_ANAL_REF_TYPE_CODE:
-					case R_ANAL_REF_TYPE_CALL:
-						r_core_anal_fcn (core, ref->addr, ref->at, ref->type, depth-1);
-						break;
-					default:
-						break;
-					}
-					// TODO: fix memleak here, fcn not freed even though it is
-					// added in core->anal->fcns which is freed in r_anal_free()
-				}
-			}
+			if (!r_anal_analyze_fcn_refs(core, fcn, depth)) goto error;
 		}
 	} while (fcnlen != R_ANAL_RET_END);
 	R_FREE (buf);
@@ -484,29 +537,34 @@ static int cb(void *p, const char *k, const char *v) {
 	case '*':
 		HINTCMD_ADDR (hint, arch, "aha %s");
 		HINTCMD_ADDR (hint, bits, "ahb %d");
-		HINTCMD_ADDR (hint, size, "ahl %d");
+		HINTCMD_ADDR (hint, size, "ahs %d");
 		HINTCMD_ADDR (hint, opcode, "aho %s");
-		HINTCMD_ADDR (hint, opcode, "ahs %s");
-		HINTCMD_ADDR (hint, opcode, "ahp %s");
+		HINTCMD_ADDR (hint, syntax, "ahS %s");
+		HINTCMD_ADDR (hint, immbase, "ahi %d");
+		HINTCMD_ADDR (hint, esil, "ahe %s");
 		break;
 	case 'j':
 		r_cons_printf ("%s{\"from\":%"PFMT64d",\"to\":%"PFMT64d,
 			hls->count>0?",":"", hint->addr, hint->addr+hint->size);
-		HINTCMD (hint, arch, ",\"arch\":\"%s\""); // XXX: arch must not contain strange chars
-		HINTCMD (hint, bits, ",\"bits\":%d");
-		HINTCMD (hint, size, ",\"size\":%d");
-		HINTCMD (hint, opcode, ",\"opcode\":\"%s\"");
-		HINTCMD (hint, esil, ",\"esil\":\"%s\"");
-		HINTCMD (hint, ptr, ",\"ptr\":\"0x%"PFMT64x"x\"");
+		HINTCMD (hint, arch, ",\"arch\":\"%s\"", true); // XXX: arch must not contain strange chars
+		HINTCMD (hint, bits, ",\"bits\":%d", true);
+		HINTCMD (hint, size, ",\"size\":%d", true);
+		HINTCMD (hint, opcode, ",\"opcode\":\"%s\"", true);
+		HINTCMD (hint, syntax, ",\"syntax\":\"%s\"", true);
+		HINTCMD (hint, immbase, ",\"immbase\":%d", true);
+		HINTCMD (hint, esil, ",\"esil\":\"%s\"", true);
+		HINTCMD (hint, ptr, ",\"ptr\":\"0x%"PFMT64x"x\"", true);
 		r_cons_printf ("}");
 		break;
 	default:
-		r_cons_printf (" 0x%08"PFMT64x" - 0x%08"PFMT64x, hint->addr, hint->addr+hint->size);
-		HINTCMD (hint, arch, " arch='%s'");
-		HINTCMD (hint, bits, " bits=%d");
-		HINTCMD (hint, size, " length=%d");
-		HINTCMD (hint, opcode, " opcode='%s'");
-		HINTCMD (hint, esil, " esil='%s'");
+		r_cons_printf (" 0x%08"PFMT64x" - 0x%08"PFMT64x"\n", hint->addr, hint->addr+hint->size);
+		HINTCMD (hint, arch, " arch='%s'", false);
+		HINTCMD (hint, bits, " bits=%d", false);
+		HINTCMD (hint, size, " size=%d", false);
+		HINTCMD (hint, opcode, " opcode='%s'", false);
+		HINTCMD (hint, syntax, " syntax='%s'", false);
+		HINTCMD (hint, immbase, " immbase=%d", false);
+		HINTCMD (hint, esil, " esil='%s'", false);
 		r_cons_newline ();
 	}
 	hls->count++;
@@ -792,7 +850,7 @@ R_API int r_core_anal_bb(RCore *core, RAnalFunction *fcn, ut64 at, int head) {
 
 	if (ret == R_ANAL_RET_NEW) { /* New bb */
 		// XXX: use static buffer size of 512 or so
-		buf = malloc (ANALBS);
+		buf = malloc (core->anal->opt.bb_max_size);
 		if (!buf)
 			goto error;
 
@@ -800,10 +858,10 @@ R_API int r_core_anal_bb(RCore *core, RAnalFunction *fcn, ut64 at, int head) {
 			// check io error
 			if (r_io_read_at (core->io, at+bblen, buf, 4) != 4) // ETOOSLOW
 				goto error;
-			r_core_read_at (core, at+bblen, buf, ANALBS);
+			r_core_read_at (core, at+bblen, buf, core->anal->opt.bb_max_size);
 			if (!r_io_is_valid_offset (core->io, at+bblen, !core->anal->opt.noncode))
 				goto error;
-			buflen = ANALBS;
+			buflen = core->anal->opt.bb_max_size;
 			bblen = r_anal_bb (core->anal, bb, at+bblen, buf, buflen, head);
 			if (bblen == R_ANAL_RET_ERROR ||
 				(bblen == R_ANAL_RET_END && bb->size < 1)) { /* Error analyzing bb */
@@ -887,9 +945,10 @@ R_API int r_core_anal_esil_fcn(RCore *core, ut64 at, ut64 from, int reftype, int
  * If the function has been already analyzed, it adds a
  * reference to that fcn */
 R_API int r_core_anal_fcn(RCore *core, ut64 at, ut64 from, int reftype, int depth) {
-	int use_esil = r_config_get_i (core->config, "anal.esil");
 	RAnalFunction *fcn;
 	RListIter *iter;
+
+	int use_esil = r_config_get_i (core->config, "anal.esil");
 
 	if (core->io->va && !core->io->raw) {
 		if (!r_io_is_valid_offset (core->io, at, !core->anal->opt.noncode))
@@ -926,31 +985,50 @@ R_API int r_core_anal_fcn(RCore *core, ut64 at, ut64 from, int reftype, int dept
 
 	fcn = r_anal_get_fcn_in (core->anal, at, 0);
 	if (fcn) {
-		RAnalRef *ref;
+		if (fcn->addr == at) return 0;  // already analyzed function
+		if (from >= fcn->addr && (from - fcn->addr) < fcn->size) {	// inner function
+			RAnalRef *ref;
 
-		// XXX: use r_anal-xrefs api and sdb
-		// If the xref is new, add it
-		// avoid dupes
-		r_list_foreach (fcn->xrefs, iter, ref)
-			if (from == ref->addr)
-				return true;
+			// XXX: use r_anal-xrefs api and sdb
+			// If the xref is new, add it
+			// avoid dupes
+			r_list_foreach (fcn->xrefs, iter, ref)
+				if (from == ref->addr)
+					return true;
 
-		ref = r_anal_ref_new ();
-		if (!ref) {
-			eprintf ("Error: new (xref)\n");
-			return false;
-		}
-		ref->addr = from;
-		ref->at = at;
-		ref->type = reftype;
-		if (reftype == R_ANAL_REF_TYPE_DATA) {
-			// XXX HACK TO AVOID INVALID REFS
-			r_list_append (fcn->xrefs, ref);
+			ref = r_anal_ref_new ();
+			if (!ref) {
+				eprintf ("Error: new (xref)\n");
+				return false;
+			}
+			ref->addr = from;
+			ref->at = at;
+			ref->type = reftype;
+			if (reftype == R_ANAL_REF_TYPE_DATA) {
+				// XXX HACK TO AVOID INVALID REFS
+				r_list_append (fcn->xrefs, ref);
+			} else {
+				free (ref);
+			}
+			// we should analyze and add code ref otherwise aaa != aac
+			if (from != UT64_MAX) {
+				// We shuold not use fcn->xrefs .. because that should be only via api (on top of sdb)
+				// the concepts of refs and xrefs are a bit twisted in the old implementation
+				ref = r_anal_ref_new ();
+				if (ref) {
+					ref->addr = from;
+					ref->at = fcn->addr;
+					ref->type = reftype;
+					r_list_append (fcn->xrefs, ref);
+					// XXX this is creating dupped entries in the refs list with invalid reftypes, wtf?
+					r_anal_xrefs_set (core->anal, reftype, from, fcn->addr);
+				} else eprintf ("Error: new (xref)\n");
+			}
+			return true;
 		} else {
-			free (ref);
+			// split function if overlaps
+			r_anal_fcn_resize (fcn, at - fcn->addr);
 		}
-
-		return true;
 	}
 	return core_anal_fcn (core, at, from, reftype, depth);
 }
@@ -1066,7 +1144,7 @@ static void fcn_list_bbs(RAnalFunction *fcn) {
 	RListIter *iter;
 
 	r_list_foreach (fcn->bbs, iter, bbi) {
-		r_cons_printf ("afb+ 0x%08"PFMT64x" 0x%08"PFMT64x" %04"PFMT64d" ",
+		r_cons_printf ("afb+ 0x%08"PFMT64x" 0x%08"PFMT64x" %d ",
 				fcn->addr, bbi->addr, bbi->size);
 		r_cons_printf ("0x%08"PFMT64x" ", bbi->jump);
 		r_cons_printf ("0x%08"PFMT64x" ", bbi->fail);
@@ -1641,7 +1719,7 @@ R_API int r_core_anal_search_xrefs(RCore *core, ut64 from, ut64 to, int rad) {
 			} else if (rad == 'j') {
 				// Output JSON
 				if (count > 0) r_cons_printf (",");
-				r_cons_printf ("%"PFMT64d":%"PFMT64d, xref_to, xref_from);
+				r_cons_printf ("\"0x%"PFMT64x"\":\"0x%"PFMT64x"\"", xref_to, xref_from);
 			} else {
 				// Display in radare commands format
 				char *cmd;
@@ -1713,7 +1791,7 @@ R_API int r_core_anal_all(RCore *core) {
 		r_list_foreach (list, iter, symbol) {
 			if (core->cons->breaked)
 				break;
-			if (!strcmp (symbol->type, "FUNC")) {
+			if (symbol->type && (!strcmp (symbol->type, "FUNC"))) {
 				ut64 addr = r_bin_get_vaddr (core->bin, symbol->paddr,
 					symbol->vaddr);
 				r_core_anal_fcn (core, addr, -1,
@@ -1774,7 +1852,6 @@ R_API int r_core_anal_data (RCore *core, ut64 addr, int count, int depth) {
 	memset (buf, 0xff, len);
 	r_io_read_at (core->io, addr, buf, len);
 	buf[len-1] = 0;
-	//}
 
 	for (i = j = 0; j<count; j++ ) {
 		if (i>=len) {
@@ -2099,7 +2176,7 @@ static int is_string (const ut8 *buf, int size, int *len) {
 	int i;
 	if (size<1)
 		return 0;
-	if (size>3 && buf[0] &&!buf[1]&&buf[2]&&!buf[3]) {
+	if (size>3 && buf[0] && !buf[1] && buf[2] && !buf[3]) {
 		*len = 1; // XXX: TODO: Measure wide string length
 		return 2; // is wide
 	}

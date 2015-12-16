@@ -1,4 +1,4 @@
-/* radare - LGPL - Copyright 2009-2014 - nibble */
+/* radare - LGPL - Copyright 2009-2015 - nibble */
 
 #include <stdio.h>
 #include <stdarg.h>
@@ -44,12 +44,12 @@ static int buf_fprintf(void *stream, const char *format, ...) {
 	if (buf_global == NULL)
 		return 0;
 	va_start (ap, format);
-		flen = strlen (format);
-		glen = strlen (buf_global);
-		tmp = malloc (flen + glen + 2);
-		memcpy (tmp, buf_global, glen);
-		memcpy (tmp+glen, format, flen);
-		tmp[flen+glen] = 0;
+	flen = strlen (format);
+	glen = strlen (buf_global);
+	tmp = malloc (flen + glen + 2);
+	memcpy (tmp, buf_global, glen);
+	memcpy (tmp+glen, format, flen);
+	tmp[flen+glen] = 0;
 // XXX: overflow here?
 	vsprintf (buf_global, tmp, ap);
 	va_end (ap);

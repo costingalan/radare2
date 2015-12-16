@@ -154,7 +154,7 @@ R_API int r_debug_stop(RDebug *dbg) {
 	return false;
 }
 
-R_API int r_debug_set_arch(RDebug *dbg, const char *arch, int bits) {
+R_API bool r_debug_set_arch(RDebug *dbg, const char *arch, int bits) {
 	if (arch && dbg && dbg->h) {
 		bool rc = r_sys_arch_match (dbg->h->arch, arch);
 		if (rc) {
@@ -255,15 +255,15 @@ R_API int r_debug_startv(struct r_debug_t *dbg, int argc, char **argv) {
 	return false;
 }
 
-R_API int r_debug_start(struct r_debug_t *dbg, const char *cmd) {
+R_API int r_debug_start(RDebug *dbg, const char *cmd) {
 	/* TODO: this argc/argv parser is done in r_io */
 	// TODO: parse cmd and generate argc and argv
 	return false;
 }
 
-R_API int r_debug_detach(struct r_debug_t *dbg, int pid) {
+R_API int r_debug_detach(RDebug *dbg, int pid) {
 	if (dbg->h && dbg->h->detach)
-		return dbg->h->detach(pid);
+		return dbg->h->detach (pid);
 	return false;
 }
 
@@ -734,7 +734,7 @@ static int show_syscall(RDebug *dbg, const char *sysreg) {
 			r_debug_reg_get (dbg, "pc"), reg, sysname);
 	for (i=0; i<args; i++) {
 		ut64 val;
-		snprintf (regname, sizeof (regname)-1, "a%d", i);
+		snprintf (regname, sizeof (regname)-1, "A%d", i);
 		val = r_debug_reg_get (dbg, regname);
 		if (((st64)val<0) && ((st64)val>-0xffff)) {
 			eprintf ("%"PFMT64d"%s", val, (i+1==args)?"":" ");
@@ -754,7 +754,7 @@ R_API int r_debug_continue_syscalls(RDebug *dbg, int *sc, int n_sc) {
 	if (!dbg->h->contsc) {
 		/* user-level syscall tracing */
 		r_debug_continue_until_optype (dbg, R_ANAL_OP_TYPE_SWI, 0);
-		return show_syscall (dbg, "a0");
+		return show_syscall (dbg, "A0");
 	}
 
 	if (!r_debug_reg_sync (dbg, R_REG_TYPE_GPR, false)) {
@@ -804,7 +804,7 @@ R_API int r_debug_continue_syscall(RDebug *dbg, int sc) {
 
 // TODO: remove from here? this is code injection!
 R_API int r_debug_syscall(RDebug *dbg, int num) {
-	_Bool ret = false;
+	bool ret = false;
 	if (dbg->h->contsc) {
 		ret = dbg->h->contsc (dbg, dbg->pid, num);
 	} else {

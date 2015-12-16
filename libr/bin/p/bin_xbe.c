@@ -149,6 +149,7 @@ static RList* sections(RBinFile *arch) {
 		item->vaddr = sect[i].vaddr;
 		item->size  = sect[i].size;
 		item->vsize = sect[i].vsize;
+		item->add = true;
 
 		item->srwx = R_BIN_SCN_READABLE | R_BIN_SCN_MAP;
 		if (sect[i].flags & SECT_FLAG_X)
@@ -264,7 +265,7 @@ static RList* symbols(RBinFile *arch) {
 
 		// Basic sanity checks
 		if (thunk_addr[i]&0x80000000 && thunk_index < XBE_MAX_THUNK) {
-			snprintf(sym->name, R_BIN_SIZEOF_STRINGS, "kt.%s\n", kt_name[thunk_index]);
+			sym->name = r_str_newf ("kt.%s", kt_name[thunk_index]);
 			sym->vaddr = (obj->header->kernel_thunk_addr ^ obj->kt_key) + (4 * i);
 			sym->paddr = sym->vaddr - obj->header->base;
 			sym->size = 4;
@@ -316,29 +317,18 @@ struct r_bin_plugin_t r_bin_plugin_xbe = {
 	.name = "xbe",
 	.desc = "Microsoft Xbox xbe format r_bin plugin",
 	.license = "LGPL3",
-	.init = NULL,
-	.fini = NULL,
 	.get_sdb = &get_sdb,
 	.load = &load,
-	.load_bytes = NULL,
 	.destroy = &destroy,
 	.check = &check,
 	.check_bytes = &check_bytes,
 	.baddr = &baddr,
-	.boffset = NULL,
 	.binsym = &binsym,
 	.entries = &entries,
 	.sections = &sections,
 	.symbols = &symbols,
-	.imports = NULL,
-	.strings = NULL,
 	.info = &info,
-	.fields = NULL,
 	.libs = &libs,
-	.relocs = NULL,
-	.dbginfo = NULL,
-	.create = NULL,
-	.write = NULL,
 };
 
 #ifndef CORELIB

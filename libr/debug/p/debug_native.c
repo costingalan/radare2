@@ -131,8 +131,10 @@ static int r_debug_native_step (RDebug *dbg) {
 
 // return thread id
 static int r_debug_native_attach (RDebug *dbg, int pid) {
+#if 0
 	if (!dbg || pid == dbg->pid)
-		return pid;
+		return dbg->tid;
+#endif
 #if __linux__
 	return linux_attach (dbg, pid);
 #elif __WINDOWS__ && !__CYGWIN__
@@ -747,15 +749,15 @@ static RList *r_debug_native_map_get (RDebug *dbg) {
 	char region[100], region2[100], perms[5];
 	FILE *fd;
 	if (dbg->pid == -1) {
-		eprintf ("r_debug_native_map_get: No selected pid (-1)\n");
+		//eprintf ("r_debug_native_map_get: No selected pid (-1)\n");
 		return NULL;
 	}
 #if __KFBSD__
 	list = r_debug_native_sysctl_map (dbg);
 	if (list != NULL) return list;
-	snprintf (path, sizeof(path), "/proc/%d/map", dbg->pid);
+	snprintf (path, sizeof (path), "/proc/%d/map", dbg->pid);
 #else
-	snprintf (path, sizeof(path), "/proc/%d/maps", dbg->pid);
+	snprintf (path, sizeof (path), "/proc/%d/maps", dbg->pid);
 #endif
 	fd = fopen (path, "r");
 	if (!fd) {
@@ -811,7 +813,7 @@ static RList *r_debug_native_map_get (RDebug *dbg) {
 					r_num_get (NULL, region),
 					r_num_get (NULL, region2),
 					perm, 0);
-		if (map == NULL) break;
+		if (!map) break;
 		map->file = strdup (path);
 		r_list_append (list, map);
 	}
@@ -876,23 +878,6 @@ static RList *r_debug_native_modules_get (RDebug *dbg) {
 	return last;
 }
 
-// TODO: deprecate???
-#if 0
-static int r_debug_native_bp_write(int pid, ut64 addr, int size, int hw, int rwx) {
-	if (hw) {
-		/* implement DRx register handling here */
-		return true;
-	}
-	return false;
-}
-
-/* TODO: rethink */
-static int r_debug_native_bp_read(int pid, ut64 addr, int hw, int rwx) {
-	return true;
-}
-#endif
-
-// TODO: implement own-defined signals
 static int r_debug_native_kill (RDebug *dbg, int pid, int tid, int sig) {
 	int ret = false;
 	if (pid == 0) pid = dbg->pid;
@@ -1073,6 +1058,7 @@ static RList *xnu_desc_list (int pid) {
 #endif
 }
 #endif
+
 #if __WINDOWS__
 static RList *win_desc_list (int pid) {
 	RDebugDesc *desc;
@@ -1286,7 +1272,11 @@ struct r_debug_plugin_t r_debug_plugin_native = {
 #elif __arm__
 	.bits = R_SYS_BITS_16 | R_SYS_BITS_32 | R_SYS_BITS_64,
 	.arch = "arm",
+#if __linux__
 	.canstep = 0, // XXX it's 1 on some platforms...
+#else
+	.canstep = 1, // XXX it's 1 on some platforms...
+#endif
 #elif __aarch64__
 	.bits = R_SYS_BITS_16 | R_SYS_BITS_32 | R_SYS_BITS_64,
 	.arch = "arm",

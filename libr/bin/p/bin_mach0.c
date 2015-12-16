@@ -106,6 +106,7 @@ static RList* sections(RBinFile *arch) {
 		ptr->vsize = sections[i].size;
 		ptr->paddr = sections[i].offset + obj->boffset;
 		ptr->vaddr = sections[i].addr;
+		ptr->add = true;
 		if (ptr->vaddr == 0)
 			ptr->vaddr = ptr->paddr;
 		ptr->srwx = sections[i].srwx | R_BIN_SCN_MAP;
@@ -140,11 +141,11 @@ static RList* symbols(RBinFile *arch) {
 		if (!symbols[i].name[0] || symbols[i].addr<100) continue;
 		if (!(ptr = R_NEW0 (RBinSymbol)))
 			break;
-		strncpy (ptr->name, (char*)symbols[i].name, R_BIN_SIZEOF_STRINGS);
-		strncpy (ptr->forwarder, "NONE", R_BIN_SIZEOF_STRINGS);
-		strncpy (ptr->bind, (symbols[i].type == R_BIN_MACH0_SYMBOL_TYPE_LOCAL)?
-			"LOCAL":"GLOBAL" , R_BIN_SIZEOF_STRINGS);
-		strncpy (ptr->type, "FUNC", R_BIN_SIZEOF_STRINGS); //XXX Get the right type
+		ptr->name = strdup ((char*)symbols[i].name);
+		ptr->forwarder = r_str_const ("NONE");
+		ptr->bind = r_str_const ((symbols[i].type == R_BIN_MACH0_SYMBOL_TYPE_LOCAL)?
+			"LOCAL":"GLOBAL");
+		ptr->type = r_str_const ("FUNC");
 		ptr->vaddr = symbols[i].addr;
 		ptr->paddr = symbols[i].offset+obj->boffset;
 		ptr->size = symbols[i].size;
@@ -166,7 +167,7 @@ static RList* symbols(RBinFile *arch) {
 		ut64 value = 0, address = 0;
 		const ut8* temp = bin->func_start;
 		const ut8* temp_end = bin->func_start + bin->func_size;
-		while (*temp && temp+2 < temp_end) {
+		while (*temp && temp+3 < temp_end) {
 			temp = r_uleb128_decode (temp, NULL, &value);
 			address += value;
 			ptr = R_NEW0 (RBinSymbol);
@@ -174,10 +175,10 @@ static RList* symbols(RBinFile *arch) {
 			ptr->vaddr = bin->baddr + address;
 			ptr->paddr = address;
 			ptr->size = 0;
-			strncpy (ptr->type, "FUNC", R_BIN_SIZEOF_STRINGS);
-			strncpy (ptr->name, r_str_newf ("func.%08"PFMT64x, ptr->vaddr), R_BIN_SIZEOF_STRINGS);
-			strncpy (ptr->forwarder, "NONE", R_BIN_SIZEOF_STRINGS);
-			strncpy (ptr->bind, "LOCAL", R_BIN_SIZEOF_STRINGS);
+			ptr->name = r_str_newf ("func.%08"PFMT64x, ptr->vaddr);
+			ptr->type = r_str_const ("FUNC");
+			ptr->forwarder = r_str_const ("NONE");
+			ptr->bind = r_str_const ("LOCAL");
 			ptr->ordinal = i++;
 			r_list_append (ret, ptr);
 		}
@@ -224,9 +225,9 @@ static RList* imports(RBinFile *arch) {
 		// Remove the extra underscore that every import seems to have in Mach-O.
 		if (*name == '_')
 			name++;
-		strncpy (ptr->bind, "NONE", R_BIN_SIZEOF_STRINGS-1);
-		strncpy (ptr->name, name, R_BIN_SIZEOF_STRINGS-1);
-		strncpy (ptr->type, type, R_BIN_SIZEOF_STRINGS-1);
+		ptr->name = strdup (name);
+		ptr->bind = r_str_const ("NONE");
+		ptr->type = r_str_const (type);
 		ptr->ordinal = imports[i].ord;
 		if (bin->imports_by_ord && ptr->ordinal < bin->imports_by_ord_size)
 			bin->imports_by_ord[ptr->ordinal] = ptr;
@@ -567,8 +568,6 @@ RBinPlugin r_bin_plugin_mach0 = {
 	.name = "mach0",
 	.desc = "mach0 bin plugin",
 	.license = "LGPL3",
-	.init = NULL,
-	.fini = NULL,
 	.get_sdb = &get_sdb,
 	.load = &load,
 	.load_bytes = &load_bytes,
@@ -576,20 +575,15 @@ RBinPlugin r_bin_plugin_mach0 = {
 	.check = &check,
 	.check_bytes = &check_bytes,
 	.baddr = &baddr,
-	.boffset = NULL,
 	.binsym = &binsym,
 	.entries = &entries,
 	.sections = &sections,
 	.symbols = &symbols,
 	.imports = &imports,
-	.strings = NULL,
 	.size = &size,
 	.info = &info,
-	.fields = NULL,
 	.libs = &libs,
 	.relocs = &relocs,
-	.dbginfo = NULL,
-	.write = NULL,
 	.create = &create,
 	.classes = &MACH0_(parse_classes)
 };

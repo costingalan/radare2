@@ -170,12 +170,7 @@ typedef struct r_debug_t {
 	int trace_clone;
 	// internal use only
 	int _mode;
-	RList *threads;
-	/* TODO
-	- list of processes and their threads
-	- list of mapped memory (from /proc/XX/maps)
-	- list of managed memory (allocated in child...)
-	*/
+	RList *threads; // XXX This is platform-specific !!!
 	/* select backtrace algorithm */
 	char *btalgo;
 	RNum *num;
@@ -319,8 +314,8 @@ R_API RDebugPid *r_debug_pid_new(const char *path, int pid, char status, ut64 pc
 R_API RDebugPid *r_debug_pid_free(RDebugPid *pid);
 R_API RList *r_debug_pids(RDebug *dbg, int pid);
 
-R_API int r_debug_set_arch(RDebug *dbg, const char *arch, int bits);
-R_API int r_debug_use(RDebug *dbg, const char *str);
+R_API bool r_debug_set_arch(RDebug *dbg, const char *arch, int bits);
+R_API bool r_debug_use(RDebug *dbg, const char *str);
 
 R_API RDebugInfo *r_debug_info(RDebug *dbg, const char *arg);
 R_API void r_debug_info_free (RDebugInfo *rdi);
@@ -347,10 +342,10 @@ R_API int r_debug_continue_kill(RDebug *dbg, int signal);
 R_API int r_debug_select(RDebug *dbg, int pid, int tid);
 
 /* handle.c */
-R_API int r_debug_plugin_init(RDebug *dbg);
+R_API void r_debug_plugin_init(RDebug *dbg);
 R_API int r_debug_plugin_set(RDebug *dbg, const char *str);
 R_API int r_debug_plugin_list(RDebug *dbg);
-R_API int r_debug_plugin_add(RDebug *dbg, RDebugPlugin *foo);
+R_API bool r_debug_plugin_add(RDebug *dbg, RDebugPlugin *foo);
 
 /* memory */
 R_API RList *r_debug_modules_list(RDebug*);
@@ -394,7 +389,7 @@ R_API int r_debug_is_dead (RDebug *dbg);
 R_API int r_debug_map_protect (RDebug *dbg, ut64 addr, int size, int perms);
 /* args XXX: weird food */
 R_API ut64 r_debug_arg_get (RDebug *dbg, int fast, int num);
-R_API int r_debug_arg_set (RDebug *dbg, int fast, int num, ut64 value);
+R_API bool r_debug_arg_set (RDebug *dbg, int fast, int num, ut64 value);
 
 /* pid */
 R_API int r_debug_thread_list(RDebug *dbg, int pid);

@@ -94,6 +94,7 @@ static RList* sections(RBinFile *arch) {
 	ptr->vaddr = 0xf0000;
 	ptr->srwx = R_BIN_SCN_READABLE | R_BIN_SCN_WRITABLE |
 		R_BIN_SCN_EXECUTABLE | R_BIN_SCN_MAP;
+	ptr->add = true;
 	r_list_append (ret, ptr);
 	return ret;
 }
@@ -116,8 +117,6 @@ struct r_bin_plugin_t r_bin_plugin_bios = {
 	.name = "bios",
 	.desc = "BIOS bin plugin",
 	.license = "LGPL",
-	.init = NULL,
-	.fini = NULL,
 	.get_sdb = &get_sdb,
 	.load = &load,
 	.load_bytes = &load_bytes,
@@ -125,20 +124,10 @@ struct r_bin_plugin_t r_bin_plugin_bios = {
 	.check = &check,
 	.check_bytes = &check_bytes,
 	.baddr = &baddr,
-	.boffset = NULL,
-	.binsym = NULL,
 	.entries = entries,
 	.sections = sections,
-	.symbols = NULL,
-	.imports = NULL,
 	.strings = &strings,
 	.info = &info,
-	.fields = NULL,
-	.libs = NULL,
-	.relocs = NULL,
-	.dbginfo = NULL,
-	.write = NULL,
-	.demangle_type = NULL
 };
 
 #ifndef CORELIB

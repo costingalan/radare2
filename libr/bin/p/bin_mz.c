@@ -122,6 +122,7 @@ static RList * sections(RBinFile *arch) {
 		ptr->paddr = segments[i].paddr;
 		ptr->vaddr = segments[i].paddr;
 		ptr->srwx = r_str_rwx ("mrwx");
+		ptr->add = true;
 		r_list_append (ret, ptr);
 	}
 	free ((void *)segments);
@@ -190,31 +191,17 @@ struct r_bin_plugin_t r_bin_plugin_mz = {
 	.name = "mz",
 	.desc = "MZ bin plugin",
 	.license = "MIT",
-	.init = NULL,
-	.fini = NULL,
 	.get_sdb = &get_sdb,
 	.load = &load,
 	.load_bytes = &load_bytes,
 	.destroy = &destroy,
 	.check = &check,
 	.check_bytes = &check_bytes,
-	.baddr = NULL,
-	.boffset = NULL,
-	.binsym = NULL,
 	.entries = &entries,
 	.sections = &sections,
-	.symbols = NULL,
-	.imports = NULL,
-	.strings = NULL,
 	.info = &info,
-	.fields = NULL,
-	.libs = NULL,
 	.relocs = &relocs,
-	.dbginfo = NULL,
-	.write = NULL,
 	.minstrlen = 4,
-	.create = NULL,
-	.get_vaddr = NULL
 };
 
 #ifndef CORELIB

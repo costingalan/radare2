@@ -88,11 +88,12 @@ static RList *sections(RBinFile *arch) {
 		}
 
 		ptr = R_NEW0 (RBinSection);
-		strncpy (ptr->name, coffname, R_BIN_SIZEOF_STRINGS); 
+		strncpy (ptr->name, coffname, R_BIN_SIZEOF_STRINGS);
 
 		ptr->size = obj->scn_hdrs[i].s_size;
 		ptr->vsize = obj->scn_hdrs[i].s_size;
 		ptr->paddr = obj->scn_hdrs[i].s_scnptr;
+		ptr->add = true;
 
 		ptr->srwx = R_BIN_SCN_MAP;
 		if (obj->scn_hdrs[i].s_flags&COFF_SCN_MEM_READ)
@@ -130,28 +131,32 @@ static RList *symbols(RBinFile *arch) {
 			free (ptr);
 			break;
 		}
-		strncpy (ptr->name, coffname, R_BIN_SIZEOF_STRINGS);
-
-		strncpy (ptr->forwarder, "NONE", R_BIN_SIZEOF_STRINGS);
-		strncpy (ptr->bind, "", R_BIN_SIZEOF_STRINGS);
+		ptr->name = strdup (coffname);
+		ptr->forwarder = r_str_const ("NONE");
 
 		switch (obj->symbols[i].n_sclass) {
-			case COFF_SYM_CLASS_FUNCTION:
-				strcpy (ptr->type, "FUNC"); break;
-			case COFF_SYM_CLASS_FILE:
-				strcpy (ptr->type, "FILE"); break;
-			case COFF_SYM_CLASS_SECTION:
-				strcpy (ptr->type, "SECTION"); break;
-			case COFF_SYM_CLASS_EXTERNAL:
-				strcpy (ptr->type, "EXTERNAL"); break;
-			case COFF_SYM_CLASS_STATIC:
-				strcpy (ptr->type, "STATIC"); break;
-			default:
-				snprintf (ptr->type, R_BIN_SIZEOF_STRINGS, "%i", obj->symbols[i].n_sclass);
+		case COFF_SYM_CLASS_FUNCTION:
+			ptr->type = r_str_const ("FUNC");
+			break;
+		case COFF_SYM_CLASS_FILE:
+			ptr->type = r_str_const ("FILE");
+			break;
+		case COFF_SYM_CLASS_SECTION:
+			ptr->type = r_str_const ("SECTION");
+			break;
+		case COFF_SYM_CLASS_EXTERNAL:
+			ptr->type = r_str_const ("EXTERNAL");
+			break;
+		case COFF_SYM_CLASS_STATIC:
+			ptr->type = r_str_const ("STATIC");
+			break;
+		default:
+			ptr->type = r_str_const (sdb_fmt(0, "%i", obj->symbols[i].n_sclass));
+			break;
 		}
 
 		if (obj->symbols[i].n_scnum < obj->hdr.f_nscns) {
-			ptr->paddr = obj->scn_hdrs[obj->symbols[i].n_scnum].s_scnptr + 
+			ptr->paddr = obj->scn_hdrs[obj->symbols[i].n_scnum].s_scnptr +
 				obj->symbols[i].n_value;
 		}
 
@@ -265,7 +270,7 @@ static int check_bytes(const ut8 *buf, ut64 length) {
 #if 0
 TODO: do more checks here to avoid false positives
 
-ut16 MACHINE 
+ut16 MACHINE
 ut16 NSECTIONS
 ut32 DATE
 ut32 PTRTOSYMTABLE
@@ -282,8 +287,6 @@ RBinPlugin r_bin_plugin_coff = {
 	.name = "coff",
 	.desc = "COFF format r_bin plugin",
 	.license = "LGPL3",
-	.init = NULL,
-	.fini = NULL,
 	.get_sdb = &get_sdb,
 	.load = &load,
 	.load_bytes = &load_bytes,
@@ -291,21 +294,16 @@ RBinPlugin r_bin_plugin_coff = {
 	.check = &check,
 	.check_bytes = &check_bytes,
 	.baddr = &baddr,
-	.boffset = NULL,
 	.binsym = &binsym,
 	.entries = &entries,
 	.sections = &sections,
 	.symbols = &symbols,
 	.imports = &imports,
-	.strings = NULL,
 	.info = &info,
 	.fields = &fields,
 	.size = &size,
 	.libs = &libs,
 	.relocs = &relocs,
-	.dbginfo = NULL,
-	.write = NULL,
-	.get_vaddr = NULL,
 };
 
 #ifndef CORELIB

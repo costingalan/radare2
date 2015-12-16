@@ -53,14 +53,13 @@ int linux_handle_signals (RDebug *dbg) {
 			break;
 		default: break;
 		}
-		return R_TRUE;
+		return true;
 	}
-	return R_FALSE;
-
+	return false;
 }
 
 int linux_step (RDebug *dbg) {
-	int ret = R_FALSE;
+	int ret = false;
 	ut64 addr = 0; /* should be eip */
 	//ut32 data = 0;
 	//printf("NATIVE STEP over PID=%d\n", pid);
@@ -70,9 +69,9 @@ int linux_step (RDebug *dbg) {
 	linux_handle_signals (dbg);
 	if (ret == -1) {
 		perror ("native-singlestep");
-		ret = R_FALSE;
+		ret = false;
 	} else {
-		ret = R_TRUE;
+		ret = true;
 	}
 	return ret;
 }
@@ -219,11 +218,11 @@ static void print_fpu (void *f, int r){
 			ut64 *b = (ut64*)&fpregs.st_space[i * 4];
 			ut32 *c = (ut32*)&fpregs.st_space;
 			float *f = (float *)&fpregs.st_space;
+			double *d = (double *)&fpregs.st_space[i*4];
 			c = c + (i * 4);
 			f = f + (i * 4);
-			eprintf ("st%d =%0.3lg (0x%016"PFMT64x") | %0.3f (%08x)  |\
-				%0.3f (%08x) \n", i,
-				(double)*((double*)&fpregs.st_space[i*4]), *b,
+			eprintf ("st%d = %0.3lg (0x%016"PFMT64x") | %0.3f (%08x)  |\
+				%0.3f (%08x) \n", i, *d, *b,
 				(float)f[0], c[0], (float)f[1], c[1]);
 		} else {
 			eprintf ("\n");
@@ -294,11 +293,11 @@ static void print_fpu (void *f, int r){
 }
 
 int linux_reg_read (RDebug *dbg, int type, ut8 *buf, int size) {
-	int showfpu = R_FALSE;
+	bool showfpu = false;
 	int pid = dbg->pid;
 	int ret;
 	if (type < -1) {
-		showfpu = R_TRUE;
+		showfpu = true;
 		type = -type;
 	}
 	switch (type) {
@@ -313,13 +312,13 @@ int linux_reg_read (RDebug *dbg, int type, ut8 *buf, int size) {
 					r_offsetof (struct user, u_debugreg[i]), 0);
 			memcpy (buf + (i * sizeof(ret)), &ret, sizeof(ret));
 		}
-		return sizeof(R_DEBUG_REG_T);
+		return sizeof (R_DEBUG_REG_T);
 	}
 #else
 	#warning Android X86 does not support DRX
 #endif
 #endif
-		return R_TRUE;
+		return true;
 		break;
 	case R_REG_TYPE_FPU:
 	case R_REG_TYPE_MMX:
@@ -333,14 +332,14 @@ int linux_reg_read (RDebug *dbg, int type, ut8 *buf, int size) {
 #if !__ANDROID__
 			ret1 = ptrace (PTRACE_GETFPREGS, pid, NULL, &fpregs);
 			if (showfpu) print_fpu ((void *)&fpregs, 0);
-			if (ret1 != 0) return R_FALSE;
+			if (ret1 != 0) return false;
 			if (sizeof(fpregs) < size) size = sizeof(fpregs);
 			memcpy (buf, &fpregs, size);
 			return sizeof(fpregs);
 #else
 			ret1 = ptrace (PTRACE_GETFPREGS, pid, NULL, &fpregs);
 			if (showfpu) print_fpu ((void *)&fpregs, 0);
-			if (ret1 != 0) return R_FALSE;
+			if (ret1 != 0) return false;
 			if (sizeof(fpregs) < size) size = sizeof(fpregs);
 			memcpy (buf, &fpregs, size);
 			return sizeof(fpregs)
@@ -357,7 +356,7 @@ int linux_reg_read (RDebug *dbg, int type, ut8 *buf, int size) {
 			} else {
 				ret1 = ptrace (PTRACE_GETFPREGS, pid, NULL, &fpregs);
 				if (showfpu) print_fpu ((void *)&fpregs, ret1);
-				if (ret1 != 0) return R_FALSE;
+				if (ret1 != 0) return false;
 				if (sizeof(fpregs) < size) size = sizeof(fpregs);
 				memcpy (buf, &fpregs, size);
 				return sizeof(fpregs);
@@ -365,7 +364,7 @@ int linux_reg_read (RDebug *dbg, int type, ut8 *buf, int size) {
 #else
 			ret1 = ptrace (PTRACE_GETFPREGS, pid, NULL, &fpregs);
 			if (showfpu) print_fpu ((void *)&fpregs, 1);
-			if (ret1 != 0) return R_FALSE;
+			if (ret1 != 0) return false;
 			if (sizeof(fpregs) < size) size = sizeof(fpregs);
 			memcpy (buf, &fpregs, size);
 			return sizeof(fpregs);
@@ -382,11 +381,19 @@ int linux_reg_read (RDebug *dbg, int type, ut8 *buf, int size) {
 	case R_REG_TYPE_GPR:
 		{
 			R_DEBUG_REG_T regs;
-			memset (&regs, 0, sizeof(regs));
+			memset (&regs, 0, sizeof (regs));
 			memset (buf, 0, size);
-#if __powerpc__
+#if __arm64__ || __aarch64__
+			{
+			struct iovec io = {
+				.iov_base = &regs,
+				.iov_len = sizeof (regs)
+			};
+			ret = ptrace (PTRACE_GETREGSET, pid, NT_PRSTATUS, &io);
+			}
+#elif __powerpc__
 			ret = ptrace (PTRACE_GETREGS, pid, &regs, NULL);
-#elif !__powerpc__
+#else
 			/* linux -{arm/x86/x86_64} */
 			ret = ptrace (PTRACE_GETREGS, pid, NULL, &regs);
 #endif
@@ -396,14 +403,14 @@ int linux_reg_read (RDebug *dbg, int type, ut8 *buf, int size) {
 			 * to 'wait'. and the process is not yet available to accept 
 			 * more ptrace queries.
 			 */
-			if (ret != 0) return R_FALSE;
-			if (sizeof(regs) < size) size = sizeof(regs);
+			if (ret != 0) return false;
+			if (sizeof (regs) < size) size = sizeof(regs);
 			memcpy (buf, &regs, size);
 			return sizeof (regs);
 		}
 		break;
 	}
-	return R_TRUE;
+	return true;
 
 }
 
@@ -423,15 +430,25 @@ int linux_reg_write (RDebug *dbg, int type, const ut8 *buf, int size) {
 		}
 		return sizeof(R_DEBUG_REG_T);
 #else
-		return R_FALSE;
+		return false;
 #endif
 	}
 	if (type == R_REG_TYPE_GPR) {
+#if __arm64__ || __aarch64__
+		struct iovec io = {
+			.iov_base = buf,
+			.iov_len = sizeof (R_DEBUG_REG_T)
+		};
+		int ret = ptrace (PTRACE_SETREGSET, dbg->pid, NT_PRSTATUS, &io);
+#elif __powerpc__
+		int ret = ptrace (PTRACE_SETREGS, dbg->pid, &regs, NULL);
+#else 
 		int ret = ptrace (PTRACE_SETREGS, dbg->pid, 0, (void*)buf);
-		if (sizeof(R_DEBUG_REG_T) < size) size = sizeof(R_DEBUG_REG_T);
-		return (ret != 0) ? R_FALSE : R_TRUE;
+#endif
+		if (size > sizeof (R_DEBUG_REG_T)) size = sizeof (R_DEBUG_REG_T);
+		return (ret != 0) ? false : true;
 	}
-	return R_FALSE;
+	return false;
 }
 
 RList *linux_desc_list (int pid) {

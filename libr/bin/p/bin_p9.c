@@ -1,4 +1,4 @@
-/* radare2 - LGPL - Copyright 2009-2013 - nibble, pancake */
+/* radare2 - LGPL - Copyright 2009-2015 - nibble, pancake */
 
 #include <r_types.h>
 #include <r_util.h>
@@ -66,8 +66,10 @@ static RList* entries(RBinFile *arch) {
 static RList* sections(RBinFile *arch) {
 	RList *ret = NULL;
 	RBinSection *ptr = NULL;
+	int big_endian = 0;
 	ut64 textsize, datasize, symssize, spszsize, pcszsize;
-	int big_endian = arch->o->info->big_endian;
+	if (!arch->o->info) return NULL;
+	big_endian = arch->o->info->big_endian;
 
 	if (!(ret = r_list_new ()))
 		return NULL;
@@ -83,6 +85,7 @@ static RList* sections(RBinFile *arch) {
 	ptr->paddr = 8*4;
 	ptr->vaddr = ptr->paddr;
 	ptr->srwx = R_BIN_SCN_READABLE | R_BIN_SCN_EXECUTABLE | R_BIN_SCN_MAP; // r-x
+	ptr->add = true;
 	r_list_append (ret, ptr);
 	// add data segment
 	datasize = r_mem_get_num (arch->buf->buf+8, 4, big_endian);
@@ -95,6 +98,7 @@ static RList* sections(RBinFile *arch) {
 		ptr->paddr = textsize+(8*4);
 		ptr->vaddr = ptr->paddr;
 		ptr->srwx = R_BIN_SCN_READABLE | R_BIN_SCN_WRITABLE | R_BIN_SCN_MAP; // rw-
+		ptr->add = true;
 		r_list_append (ret, ptr);
 	}
 	// ignore bss or what
@@ -109,6 +113,7 @@ static RList* sections(RBinFile *arch) {
 		ptr->paddr = datasize+textsize+(8*4);
 		ptr->vaddr = ptr->paddr;
 		ptr->srwx = R_BIN_SCN_READABLE | R_BIN_SCN_MAP; // r--
+		ptr->add = true;
 		r_list_append (ret, ptr);
 	}
 	// add spsz segment
@@ -122,6 +127,7 @@ static RList* sections(RBinFile *arch) {
 		ptr->paddr = symssize+datasize+textsize+(8*4);
 		ptr->vaddr = ptr->paddr;
 		ptr->srwx = R_BIN_SCN_READABLE | R_BIN_SCN_MAP; // r--
+		ptr->add = true;
 		r_list_append (ret, ptr);
 	}
 	// add pcsz segment
@@ -135,6 +141,7 @@ static RList* sections(RBinFile *arch) {
 		ptr->paddr = spszsize+symssize+datasize+textsize+(8*4);
 		ptr->vaddr = ptr->paddr;
 		ptr->srwx = R_BIN_SCN_READABLE | R_BIN_SCN_MAP; // r--
+		ptr->add = true;
 		r_list_append (ret, ptr);
 	}
 	return ret;
@@ -182,6 +189,7 @@ static int size(RBinFile *arch) {
 	int big_endian;
 	if (!arch->o->info)
 		arch->o->info = info (arch);
+	if (!arch->o->info) return 0;
 	big_endian = arch->o->info->big_endian;
 	// TODO: reuse section list
 	text = r_mem_get_num (arch->buf->buf+4, 4, big_endian);
@@ -216,8 +224,6 @@ struct r_bin_plugin_t r_bin_plugin_p9 = {
 	.name = "p9",
 	.desc = "Plan9 bin plugin",
 	.license = "LGPL3",
-	.init = NULL,
-	.fini = NULL,
 	.get_sdb = &get_sdb,
 	.load = &load,
 	.load_bytes = &load_bytes,
@@ -226,19 +232,13 @@ struct r_bin_plugin_t r_bin_plugin_p9 = {
 	.check = &check,
 	.check_bytes = &check_bytes,
 	.baddr = &baddr,
-	.boffset = NULL,
 	.binsym = &binsym,
 	.entries = &entries,
 	.sections = &sections,
 	.symbols = &symbols,
 	.imports = &imports,
-	.strings = NULL,
 	.info = &info,
-	.fields = NULL,
 	.libs = &libs,
-	.relocs = NULL,
-	.dbginfo = NULL,
-	.write = NULL,
 	.create = &create,
 };
 

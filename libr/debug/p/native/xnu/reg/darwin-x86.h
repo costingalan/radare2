@@ -1,15 +1,15 @@
 return strdup (
-"=pc	eip\n"
-"=sp	esp\n"
-"=bp	ebp\n"
-"=a0	eax\n"
-"=a1	ebx\n"
-"=a2	ecx\n"
-"=a3	edi\n"
-"=zf	zf\n"
-"=of	of\n"
-"=sf	sf\n"
-"=cf	cf\n"
+"=PC	eip\n"
+"=SP	esp\n"
+"=BP	ebp\n"
+"=A0	eax\n"
+"=A1	ebx\n"
+"=A2	ecx\n"
+"=A3	edi\n"
+"=ZF	zf\n"
+"=OF	of\n"
+"=SF	sf\n"
+"=CF	cf\n"
 "gpr	eax	.32	0	0\n"
 "gpr	ax	.16	0	0\n"
 "gpr	ah	.8	1	0\n"
@@ -46,6 +46,8 @@ return strdup (
 "drx	dr1	.32	4	0\n"
 "drx	dr2	.32	8	0\n"
 "drx	dr3	.32	12	0\n"
+"drx 	dr4	.32	16	0\n"
+"drx 	dr5	.32	20	0\n"
 "drx	dr6	.32	24	0\n"
 "drx	dr7	.32	28	0\n"
 "seg	cs	.32	44	0\n"
@@ -54,3 +56,18 @@ return strdup (
 "seg	fs	.32	56	0\n"
 "seg	gs	.32	60	0\n"
 );
+
+/*
+_STRUCT_X86_DEBUG_STATE32
+{
+	unsigned int	__dr0;
+	unsigned int	__dr1;
+	unsigned int	__dr2;
+	unsigned int	__dr3;
+	unsigned int	__dr4;
+	unsigned int	__dr5;
+	unsigned int	__dr6;
+	unsigned int	__dr7;
+};
+#else
+*/

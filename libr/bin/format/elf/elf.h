@@ -29,8 +29,8 @@ typedef struct r_bin_elf_symbol_t {
 	ut64 offset;
 	ut64 size;
 	ut32 ordinal;
-	char bind[ELF_STRING_LENGTH];
-	char type[ELF_STRING_LENGTH];
+	const char *bind;
+	const char *type;
 	char name[ELF_STRING_LENGTH];
 	int last;
 } RBinElfSymbol;
@@ -81,6 +81,7 @@ struct Elf_(r_bin_elf_obj_t) {
 
 	Elf_(Dyn) *dyn_buf;
 	int dyn_entries;
+	int is_rela;
 
 	RBinImport **imports_by_ord;
 	size_t imports_by_ord_size;
@@ -129,6 +130,7 @@ void* Elf_(r_bin_elf_free)(struct Elf_(r_bin_elf_obj_t)* bin);
 struct Elf_(r_bin_elf_obj_t)* Elf_(r_bin_elf_new)(const char* file);
 struct Elf_(r_bin_elf_obj_t)* Elf_(r_bin_elf_new_buf)(struct r_buf_t *buf);
 ut64 Elf_(r_bin_elf_resize_section)(struct Elf_(r_bin_elf_obj_t) *bin, const char *name, ut64 size);
+bool Elf_(r_bin_elf_section_perms)(struct Elf_(r_bin_elf_obj_t) *bin, const char *name, int perms);
 int Elf_(r_bin_elf_del_rpath)(struct Elf_(r_bin_elf_obj_t) *bin);
 int Elf_(r_bin_elf_has_relro)(struct Elf_(r_bin_elf_obj_t) *bin);
 int Elf_(r_bin_elf_has_nx)(struct Elf_(r_bin_elf_obj_t) *bin);

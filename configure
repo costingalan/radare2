@@ -357,8 +357,8 @@ else
 	echo "libc"
 fi
 printf "checking host endianness... "
-LIL_ENDIAN=$(printf I|od -to2|awk '{print substr($2,6,1);exit}')
-if [ "${LIL_ENDIAN}" = 1 ]; then
+LIL_ENDIAN=$(printf I|od|awk '{print substr($2,6,1);exit}')
+if [ 0 != 0 -o "${LIL_ENDIAN}" = 1 ]; then
 	BYTEORDER=1234
 	BIG_ENDIAN=0
 	echo little
@@ -453,8 +453,11 @@ if [ "$HAVE_BIGEND" = "1" ]; then
 LIL_ENDIAN="0"; fi
 check_library HAVE_LIB_LUA5_1 lua5.1 0 
 if [ "$USEROSTYPE" = "auto" ]; then
+if [ "$HOST_OS" = "mingw32_nt-6.2" ]; then
+USEROSTYPE="mingw32"
+else
 if [ "$HOST_OS" = "mingw32_nt" ]; then
-USEROSTYPE="windows"
+USEROSTYPE="mingw32"
 else
 if [ "$HOST_OS" = "linux" ]; then
 USEROSTYPE="gnulinux"
@@ -465,19 +468,19 @@ HAVE_LIB_DL="1"
 DL_LIBS="-ldl"
 else
 if [ "$HOST_OS" = "gnu/kfreebsd" ]; then
-USEROSTYPE="gnulinux"
+USEROSTYPE="bsd"
 else
 if [ "$HOST_OS" = "netbsd" ]; then
-USEROSTYPE="gnulinux"
+USEROSTYPE="bsd"
 else
 if [ "$HOST_OS" = "freebsd" ]; then
-USEROSTYPE="gnulinux"
+USEROSTYPE="bsd"
 else
 if [ "$HOST_OS" = "openbsd" ]; then
-USEROSTYPE="gnulinux"
+USEROSTYPE="bsd"
 else
 if [ "$HOST_OS" = "darwin" ]; then
-USEROSTYPE="darwin"; fi; fi; fi; fi; fi; fi; fi; fi; fi
+USEROSTYPE="darwin"; fi; fi; fi; fi; fi; fi; fi; fi; fi; fi
 if [ "$LIBVERSION" = "xxx" ]; then
 LIBVERSION="$VERSION"; fi
 SEDFLAGS=" -e '"

@@ -131,9 +131,9 @@ static char *getstr(const char *src) {
 		{
 			char *pat = strchr (src+1, '@');
 			if (pat) {
+				int i, len, rep = atoi (src+1);
 				*pat++ = 0;
-				int i, rep = atoi (src+1);
-				int len = strlen (pat);
+				len = strlen (pat);
 				if (rep>0) {
 					char *buf = malloc (rep);
 					for(i=0;i<rep;i++) {
@@ -424,12 +424,9 @@ R_API const char *r_run_help() {
 	"# nice=5\n";
 }
 
-R_API int r_run_start(RRunProfile *p) {
-#if __APPLE__
-	posix_spawnattr_t attr = {0};
-	pid_t pid = -1;
-#endif
+R_API int r_run_config_env(RRunProfile *p) {
 	int ret;
+
 	if (!p->_program && !p->_system) {
 		printf ("No program or system rule defined\n");
 		return 1;
@@ -525,6 +522,8 @@ R_API int r_run_start(RRunProfile *p) {
 				}
 			}
 		}
+		r_socket_free (child);
+		r_socket_free (fd);
 	}
 	if (p->_r2sleep != 0) {
 		r_sys_sleep (p->_r2sleep);
@@ -623,7 +622,14 @@ R_API int r_run_start(RRunProfile *p) {
 		eprintf ("timeout not supported for this platform\n");
 #endif
 	}
+	return 0;
+}
+
+R_API int r_run_start(RRunProfile *p) {
 #if __APPLE__
+	posix_spawnattr_t attr = {0};
+	pid_t pid = -1;
+	int ret;
 	posix_spawnattr_init (&attr);
 	if (p->_args[0]) {
 		char **envp = r_sys_get_environ();
@@ -689,7 +695,7 @@ R_API int r_run_start(RRunProfile *p) {
 		{ int i; for (i=3; i<10; i++) close (i); }
 		// TODO: use posix_spawn
 		if (p->_setgid) {
-			ret = setgid (atoi (p->_setgid));
+			int ret = setgid (atoi (p->_setgid));
 			if (ret < 0)
 				return 1;
 		}

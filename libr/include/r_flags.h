@@ -22,12 +22,11 @@ extern "C" {
 R_LIB_VERSION_HEADER(r_flag);
 
 #define R_FLAG_NAME_SIZE 512
-#define R_FLAG_BUF_SIZE 512
-#define R_FLAG_SPACES_MAX 512
+#define R_FLAG_SPACES_MAX 128
 
 typedef struct r_flag_item_t {
-	char name[R_FLAG_NAME_SIZE];
-	char realname[R_FLAG_NAME_SIZE];
+	char *name;
+	char *realname;
 	ut64 namehash;
 	ut64 offset;
 	ut64 size;
@@ -37,7 +36,6 @@ typedef struct r_flag_item_t {
 	char *color;
 	char *comment;
 	char *alias;
-	unsigned char data[R_FLAG_BUF_SIZE]; // only take a minor part of the data
 } RFlagItem;
 
 typedef struct r_flag_t {
@@ -62,6 +60,7 @@ typedef struct r_flag_t {
 
 #include <r_flags.h> // compile time line, no linkage needed
 typedef RFlagItem* (*RFlagGet)(RFlag *f, const char *name);
+typedef RFlagItem* (*RFlagGetAt)(RFlag *f, ut64 addr);
 typedef RFlagItem* (*RFlagSet)(RFlag *f, const char *name, ut64 addr, ut32 size, int dup);
 typedef int (*RFlagSetSpace)(RFlag *f, const char *name);
 
@@ -69,6 +68,7 @@ typedef struct r_flag_bind_t {
 	int init;
 	RFlag *f;
 	RFlagGet get;
+	RFlagGetAt get_at;
 	RFlagSet set;
 	RFlagSetSpace set_fs;
 } RFlagBind;

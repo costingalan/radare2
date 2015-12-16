@@ -192,6 +192,7 @@ typedef struct r_bin_t {
 	int filter; // symbol filtering
 	char strfilter; // string filtering
 	int strpurge; // purge false positive strings
+	char *srcdir; // dir.source
 	char *prefix; // bin.prefix
 } RBin;
 
@@ -266,6 +267,7 @@ typedef struct r_bin_plugin_t {
 	char* (*demangle)(const char *str);
 	/* default value if not specified by user */
 	int minstrlen;
+	char strfilter;
 	void *user;
 } RBinPlugin;
 
@@ -280,6 +282,7 @@ typedef struct r_bin_section_t {
 	const char *arch;
 	int bits;
 	bool has_strings;
+	bool add; // indicates when you want to add the section to io `S` command
 } RBinSection;
 
 typedef struct r_bin_class_t {
@@ -300,13 +303,17 @@ typedef struct r_bin_class_t {
 // bin.sections.get_by_name(SectionName, ".text");
 
 typedef struct r_bin_symbol_t {
-	char name[R_BIN_SIZEOF_STRINGS+1];
-	char forwarder[R_BIN_SIZEOF_STRINGS+1];
-	char bind[R_BIN_SIZEOF_STRINGS+1];
-	char type[R_BIN_SIZEOF_STRINGS+1];
-	char visibility_str[R_BIN_SIZEOF_STRINGS+1];
-	char classname[R_BIN_SIZEOF_STRINGS+1];
-	char descriptor[R_BIN_SIZEOF_STRINGS+1];
+	/* heap-allocated */
+	char *name;
+	char *classname;
+	/* const-unique-strings */
+	const char *forwarder;
+	const char *bind;
+	const char *type;
+	/* only used by java */
+	const char *visibility_str;
+	// ----------------
+	//char descriptor[R_BIN_SIZEOF_STRINGS+1];
 	ut64 vaddr;
 	ut64 paddr;
 	ut32 size;
@@ -316,11 +323,11 @@ typedef struct r_bin_symbol_t {
 } RBinSymbol;
 
 typedef struct r_bin_import_t {
-	char name[R_BIN_SIZEOF_STRINGS+1];
-	char bind[R_BIN_SIZEOF_STRINGS+1];
-	char type[R_BIN_SIZEOF_STRINGS+1];
-	char classname[R_BIN_SIZEOF_STRINGS+1];
-	char descriptor[R_BIN_SIZEOF_STRINGS+1];
+	char *name;
+	const char *bind;
+	const char *type;
+	char *classname;
+	char *descriptor;
 	ut32 ordinal;
 	ut32 visibility;
 } RBinImport;
@@ -338,7 +345,7 @@ typedef struct r_bin_reloc_t {
 
 typedef struct r_bin_string_t {
 	// TODO: rename string->name (avoid colisions)
-	char string[R_BIN_SIZEOF_STRINGS+1];
+	char *string;
 	ut64 vaddr;
 	ut64 paddr;
 	ut32 ordinal;
@@ -348,14 +355,14 @@ typedef struct r_bin_string_t {
 } RBinString;
 
 typedef struct r_bin_field_t {
-	char name[R_BIN_SIZEOF_STRINGS+1];
+	char *name;
 	ut64 vaddr;
 	ut64 paddr;
 	ut32 visibility;
 } RBinField;
 
 typedef struct r_bin_mem_t {	//new toy for esil-init
-	char name[R_BIN_SIZEOF_STRINGS+1];
+	char *name;
 	ut64 addr;
 	int size;
 	int perms;
@@ -368,6 +375,7 @@ typedef struct r_bin_dbginfo_t {
 
 typedef struct r_bin_write_t {
 	ut64 (*scn_resize)(RBinFile *arch, const char *name, ut64 size);
+	bool (*scn_perms)(RBinFile *arch, const char *name, int perms);
 	int (*rpath_del)(RBinFile *arch);
 } RBinWrite;
 
@@ -427,12 +435,12 @@ R_API char *r_bin_demangle_msvc(const char *str);
 R_API char *r_bin_demangle_swift(const char *s);
 R_API char *r_bin_demangle_objc(RBinFile *binfile, const char *sym);
 R_API int r_bin_lang_type(RBinFile *binfile, const char *def, const char *sym);
-R_API int r_bin_lang_objc(RBinFile *binfile);
-R_API int r_bin_lang_swift(RBinFile *binfile);
-R_API int r_bin_lang_cxx(RBinFile *binfile);
-R_API int r_bin_lang_msvc(RBinFile *binfile);
-R_API int r_bin_lang_dlang(RBinFile *binfile);
-R_API int r_bin_lang_rust(RBinFile *binfile);
+R_API bool r_bin_lang_objc(RBinFile *binfile);
+R_API bool r_bin_lang_swift(RBinFile *binfile);
+R_API bool r_bin_lang_cxx(RBinFile *binfile);
+R_API bool r_bin_lang_msvc(RBinFile *binfile);
+R_API bool r_bin_lang_dlang(RBinFile *binfile);
+R_API bool r_bin_lang_rust(RBinFile *binfile);
 
 R_API RList* r_bin_get_entries(RBin *bin);
 R_API RList* r_bin_get_fields(RBin *bin);
@@ -451,6 +459,7 @@ R_API void r_bin_class_add_field (RBinFile *binfile, const char *classname, cons
 
 R_API RBinSection* r_bin_get_section_at(RBinObject *o, ut64 off, int va);
 R_API RList* r_bin_get_strings(RBin *bin);
+R_API int r_bin_is_string(RBin *bin, ut64 va);
 R_API RList* r_bin_reset_strings(RBin *bin);
 R_API RList* r_bin_get_symbols(RBin *bin);
 R_API int r_bin_is_big_endian (RBin *bin);
@@ -495,7 +504,8 @@ R_API char *r_bin_addr2text(RBin *bin, ut64 addr);
 R_API char *r_bin_addr2fileline(RBin *bin, ut64 addr);
 /* bin_write.c */
 R_API ut64 r_bin_wr_scn_resize(RBin *bin, const char *name, ut64 size);
-R_API int r_bin_wr_rpath_del(RBin *bin);
+R_API bool r_bin_wr_scn_perms(RBin *bin, const char *name, int perms);
+R_API bool r_bin_wr_rpath_del(RBin *bin);
 R_API int r_bin_wr_output(RBin *bin, const char *filename);
 R_API int r_bin_dwarf_parse_info(RBinDwarfDebugAbbrev *da, RBin *a, int mode);
 R_API RList *r_bin_dwarf_parse_line(RBin *a, int mode);
@@ -548,6 +558,11 @@ extern RBinPlugin r_bin_plugin_art;
 extern RBinPlugin r_bin_plugin_dol;
 extern RBinPlugin r_bin_plugin_nes;
 extern RBinPlugin r_bin_plugin_mbn;
+extern RBinPlugin r_bin_plugin_smd;
+extern RBinPlugin r_bin_plugin_sms;
+extern RBinPlugin r_bin_plugin_psxexe;
+extern RBinPlugin r_bin_plugin_spc700;
+extern RBinPlugin r_bin_plugin_vsf;
 
 #ifdef __cplusplus
 }

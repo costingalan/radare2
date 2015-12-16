@@ -103,9 +103,8 @@ static void cmd_pDj (RCore *core, const char *arg) {
 }
 
 static void cmd_pdj (RCore *core, const char *arg) {
-	int nblines = r_num_math(core->num, arg);
-	ut8 buf[256];
-	r_core_print_disasm_json (core, core->offset, buf, sizeof(buf), nblines);
+	int nblines = r_num_math (core->num, arg);
+	r_core_print_disasm_json (core, core->offset, core->block, core->blocksize, nblines);
 	r_cons_newline ();
 }
 
@@ -2138,15 +2137,6 @@ static int cmd_print(void *data, const char *input) {
 					//r_list_sort (f->bbs, &r_anal_ex_bb_address_comparator);
 					r_list_foreach (f->bbs, iter, b) {
 						r_core_cmdf (core, "pD %"PFMT64d" @0x%"PFMT64x, b->size, b->addr);
-						/*switch (control_type) {
-							case R_ANAL_OP_TYPE_CALL:
-								break;
-							case R_ANAL_OP_TYPE_JMP:
-								break;
-							case R_ANAL_OP_TYPE_CJMP:
-								break;
-							case R_ANAL_OP_TYPE_SWITCH:
-						}*/
 						if (b->jump != UT64_MAX)
 							r_cons_printf ("-[true]-> 0x%08"PFMT64x"\n", b->jump);
 						if (b->fail != UT64_MAX)
@@ -2277,8 +2267,7 @@ static int cmd_print(void *data, const char *input) {
 
 			if (bw_disassemble) {
 				block = malloc (core->blocksize);
-				if (l<0)
-					l = -l;
+				if (l<0) l = -l;
 				if (block) {
 					if (*input == 'D'){ //pD
 						r_core_read_at (core, addr-l, block, l); //core->blocksize);
@@ -2393,7 +2382,7 @@ static int cmd_print(void *data, const char *input) {
 					case 'w' : type = "wide" ; break;
 					case 'a' : type = "ascii"; break;
 					case 'u' : type = "utf" ; break;
-					default : type = "unkown" ; break;
+					default : type = "unknown" ; break;
 				}
 				r_cons_printf (",\"type\":\"%s\"}", type);
 				r_cons_newline ();
@@ -3033,14 +3022,14 @@ static int cmd_print(void *data, const char *input) {
 		free (buf);
 		}
 		break;
-	case '8':
+	case '8': // "p8"
 		if (input[1] == '?') {
 			r_cons_printf("|Usage: p8[j] [len]     8bit hexpair list of bytes (see pcj)\n");
 		} else if (input[1] == 'j') {
 			r_core_cmdf (core, "pcj %s", input+2);
 		} else r_print_bytes (core->print, core->block, len, "%02x");
 		break;
-	case 'f':
+	case 'f': // "pf"
 		cmd_print_format (core, input, len);
 		break;
 	case 'k':

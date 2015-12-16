@@ -76,8 +76,11 @@ R_API RIOMap *r_io_map_get(RIO *io, ut64 addr) {
 	RIOMap *map;
 	RListIter *iter;
 	r_list_foreach (io->maps, iter, map) {
-		if ((map->from <= addr) && (addr < map->to))
+		if (map->from == map->to && addr >= map->from) {
 			return map;
+		} else if (addr >= map->from && addr < map->to) {
+			return map;
+		}
 	}
 	return NULL;
 }
@@ -314,7 +317,7 @@ R_API ut64 r_io_map_select_current_fd(RIO *io, ut64 off, int fd) {
 	return paddr;
 }
 
-R_API _Bool r_io_map_overlaps (RIO *io, RIODesc *fd, RIOMap *map) {
+R_API bool r_io_map_overlaps (RIO *io, RIODesc *fd, RIOMap *map) {
 	RListIter *iter;
 	RIOMap *im = NULL;
 	ut64 off = map->from;
@@ -328,13 +331,26 @@ R_API _Bool r_io_map_overlaps (RIO *io, RIODesc *fd, RIOMap *map) {
 	return false;
 }
 
-R_API void r_io_map_list (RIO *io) {
+R_API void r_io_map_list (RIO *io, int mode) {
 	RIOMap *map;
 	RListIter *iter;
 	if (io && io->maps && io->cb_printf) {
 		r_list_foreach (io->maps, iter, map) {
-			if (map)
-				io->cb_printf ("%i +0x%"PFMT64x" 0x%"PFMT64x" - 0x%"PFMT64x" ; %s\n", map->fd, map->delta, map->from, map->to, r_str_rwx_i (map->flags));
+			if (!map) continue;
+			switch (mode) {
+			case 1:
+			case 'r':
+				if (map->from) {
+					io->cb_printf ("omr 0x0 0x%"PFMT64x"\n", map->from);
+				}
+				break;
+			default:
+				io->cb_printf ("%i +0x%"PFMT64x" 0x%"PFMT64x
+						" - 0x%"PFMT64x" ; %s\n", map->fd,
+						map->delta, map->from, map->to,
+						r_str_rwx_i (map->flags));
+				break;
+			}
 		}
 	}
 }

@@ -242,8 +242,8 @@ R_API RAnalMetaItem *r_meta_find(RAnal *a, ut64 off, int type, int where) {
 	//char *range = get_in_range (off);
 	if (type == R_META_TYPE_ANY) {
 		//const char *p;
-		char key [100];
-		snprintf (key, sizeof (key)-1, "meta.0x%"PFMT64x, off);
+	//	char key [100];
+	//	snprintf (key, sizeof (key)-1, "meta.0x%"PFMT64x, off);
 		//p = sdb_const_get (DB, key, 0);
 // XXX: TODO unimplemented. see core/disasm.c:1070
 	} else {
@@ -399,7 +399,7 @@ static int meta_print_item(void *user, const char *k, const char *v) {
 	it.str = strchr (v2+1, ',');
 	if (it.str)
 		it.str = (char *)sdb_decode ((const char*)it.str+1, 0);
-	else it.str = strdup (it.str); // don't break in free
+	else it.str = strdup (it.str? it.str: ""); // don't break in free
 	printmetaitem (ui->anal, &it, ui->rad);
 	free (it.str);
 beach:
@@ -532,23 +532,3 @@ R_API int r_meta_space_count_for(RAnal *a, int ctx) {
 	r_meta_list_cb (a, type, 0, meta_count_cb, &mu);
 	return mu.count;
 }
-
-#if 0
-R_API char *r_anal_meta_bar (RAnal *anal, ut64 from, ut64 to, int blocks) {
-	int i, n, blocksize;
-	char *res;
-	ut64 f, t;
-	if (blocks<1 || from > to)
-		return NULL;
-	blocksize = (to-from)/blocks;
-	res = malloc (blocks*4);
-	for (i=0; i< blocks; i++) {
-		f = from + (blocksize*i);
-		t = f+blocksize;
-		n = r_anal_fcn_count (anal, f, t);
-		if (n>0) res[i++] = 'f';
-		res[i++] = ',';
-	}
-	return res;
-}
-#endif

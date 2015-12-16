@@ -313,8 +313,12 @@ R_API int r_asm_disassemble(RAsm *a, RAsmOp *op, const ut8 *buf, int len) {
 	op->buf_asm[0] = '\0';
 	if (a->pcalign) {
 		if (a->pc % a->pcalign) {
-			op->size = -1;
+			op->size = a->pcalign - (a->pc % a->pcalign);
 			strcpy (op->buf_asm, "unaligned");
+			*op->buf_hex = 0;
+			if ((op->size*4) >= sizeof (op->buf_hex))
+				oplen = (sizeof (op->buf_hex)/4)-1;
+			r_hex_bin2str (buf, op->size, op->buf_hex);
 			return -1;
 		}
 	}
@@ -559,7 +563,7 @@ R_API RAsmCode* r_asm_massemble(RAsm *a, const char *buf) {
 					isseparator (*ptr_start); ptr_start++);
 			}
 			ptr = strchr (ptr_start, '#'); /* Comments */
-			if (ptr && !R_BETWEEN ('0', ptr[1], '9'))
+			if (ptr && !R_BETWEEN ('0', ptr[1], '9') && ptr[1]!='-')
 				*ptr = '\0';
 			r_asm_set_pc (a, a->pc + ret);
 			off = a->pc;
@@ -580,7 +584,7 @@ R_API RAsmCode* r_asm_massemble(RAsm *a, const char *buf) {
 				}
 				if (is_a_label) {
 					//if (stage != 2) {
-					if (ptr_start[1] == 0 || ptr_start[1] == ' ') {
+					if (ptr_start[1] != 0 && ptr_start[1] != ' ') {
 						char food[64];
 						*ptr = 0;
 						snprintf (food, sizeof (food), "0x%"PFMT64x"", off);
@@ -738,9 +742,8 @@ R_API int r_asm_get_offset(RAsm *a, int type, int idx) { // link to rbin
 }
 
 R_API char *r_asm_describe(RAsm *a, const char* str) {
-	if (a->pair)
-		return sdb_get (a->pair, str, 0);
-	return NULL;
+	if (!a->pair) return NULL;
+	return sdb_get (a->pair, str, 0);
 }
 
 R_API RList* r_asm_get_plugins(RAsm *a) {

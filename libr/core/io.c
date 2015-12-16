@@ -1,4 +1,4 @@
-/* radare2 - LGPL - Copyright 2009-2014 - pancake */
+/* radare2 - LGPL - Copyright 2009-2015 - pancake */
 
 #include "r_core.h"
 
@@ -26,45 +26,23 @@ R_API int r_core_setup_debugger (RCore *r, const char *debugbackend) {
 		if (bep) {
 			if (!strcmp (bep, "loader")) {
 				/* do nothing here */
-			} else if (!strcmp (bep, "entry"))
+			} else if (!strcmp (bep, "entry")) {
 				r_core_cmd (r, "dcu entry0", 0);
-		    else
-                r_core_cmdf (r, "dcu %s", bep);
+			} else {
+				r_core_cmdf (r, "dcu %s", bep);
+			}
 		}
 	}
-	r_core_cmd (r, "sr pc", 0);
+	r_core_cmd (r, "sr PC", 0);
 	if (r_config_get_i (r->config, "dbg.status")) {
-		r_config_set (r->config, "cmd.prompt", ".dr* ; drd ; sr pc;pi 1;s-");
+		r_config_set (r->config, "cmd.prompt", ".dr*;drd;sr PC;pi 1;s-");
 	} else r_config_set (r->config, "cmd.prompt", ".dr*");
 	r_config_set (r->config, "cmd.vprompt", ".dr*");
 	return true;
 }
 
 R_API int r_core_seek_base (RCore *core, const char *hex) {
-	int i;
-	ut64 n = 0;
-	ut64 addr = core->offset;
-	ut64 mask = 0LL;
-	char * p;
-
-	i = strlen (hex) * 4;
-	p = malloc (strlen (hex)+10);
-	if (p) {
-		strcpy (p, "0x");
-		strcpy (p+2, hex);
-		if (hex[0] >= '0' && hex[0] <= '9') {
-			n = r_num_math (core->num, p);
-		} else {
-			eprintf ("Invalid argument\n");
-			n = 0;
-		}
-		free (p);
-	}
-	if (!n) {
-		return false;
-	}
-	mask = UT64_MAX << i;
-	addr = (addr & mask) | n;
+	ut64 addr = r_num_tail (core->num, core->offset, hex);
 	return r_core_seek (core, addr, 1);
 }
 
@@ -437,9 +415,11 @@ R_API int r_core_block_read(RCore *core, int next) {
 	}
 	if (core->file && core->switch_file_view) {
 		r_io_use_desc (core->io, core->file->desc);
-		r_core_bin_set_by_fd (core, core->file->desc->fd);	//needed?
+		r_core_bin_set_by_fd (core, core->file->desc->fd); //needed?
 		core->switch_file_view = 0;
-	} else	r_io_use_fd (core->io, core->io->raised);		//possibly not needed
+	} else	{
+		r_io_use_fd (core->io, core->io->raised); //possibly not needed
+	}
 	return r_io_read_at (core->io, core->offset+((next)?core->blocksize:0), core->block, core->blocksize);
 }
 

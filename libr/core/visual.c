@@ -11,8 +11,8 @@ static int autoblocksize = 1;
 static ut64 last_printed_address = 0LL;
 static void r_core_visual_refresh (RCore *core);
 
-#define debugfmt_default "f tmp;sr sp;pxw 64;dr=;s-;s tmp;f-tmp;pd $r"
-const char *debugfmt_extra = "f tmp;sr sp;pxr 64;drr;s-;s tmp;f-tmp;pd $r";
+#define debugfmt_default "f tmp;sr SP;pxw 64;dr=;s-;s tmp;f-tmp;pd $r"
+const char *debugfmt_extra = "f tmp;sr SP;pxr 64;drr;s-;s tmp;f-tmp;pd $r";
 const char *debugfmt = NULL;
 
 static const char *printfmt[] = {
@@ -124,16 +124,16 @@ R_API int r_core_visual_hud(RCore *core) {
 	return (int)(size_t)p;
 }
 
-static void visual_help() {
+static int visual_help() {
 	r_cons_clear00 ();
-	r_cons_less_str (
+	return r_cons_less_str (
 	"Visual mode help:\n"
-	" ?        show this help or manpage in cursor mode\n"
+	" ?        show this help or enter the userfriendly hud\n"
 	" &        rotate asm.bits between supported 8, 16, 32, 64\n"
 	" %        in cursor mode finds matching pair, otherwise toggle autoblocksz\n"
 	" @        set cmd.vprompt to run commands before the visual prompt\n"
 	" !        enter into the visual panels mode\n"
-	" _        enter the hud\n"
+	" _        enter the flag/comment/functions/.. hud (same as VF_)\n"
 	" =        set cmd.vprompt (top row)\n"
 	" |        set cmd.cprompt (right column)\n"
 	" .        seek to program counter\n"
@@ -176,8 +176,8 @@ static void visual_help() {
 	"  F2      toggle breakpoint\n"
 	"  F7      single step\n"
 	"  F8      step over\n"
-	"  F9      continue\n"
-	);
+	"  F9      continue\n",
+	"?");
 	r_cons_flush ();
 	r_cons_clear00 ();
 }
@@ -196,9 +196,8 @@ R_API void r_core_visual_prompt_input (RCore *core) {
 	int h;
 	(void)r_cons_get_size (&h);
 	r_cons_gotoxy (0, h-2);
-	r_cons_reset_colors();
-	r_cons_printf("\nPress <enter> to return to Visual mode.\n");
-
+	r_cons_reset_colors ();
+	r_cons_printf ("\nPress <enter> to return to Visual mode.\n");
 	r_cons_show_cursor (true);
 	core->vmode = false;
 	ut64 newaddr = addr;
@@ -347,7 +346,7 @@ static void findPair (RCore *core) {
 	p = (const ut8*)strchr (keys, ch);
 	if (p) {
 		delta = (size_t)(p-(const ut8*)keys);
-		ch = (delta%2)? p[-1]: p[1];
+		ch = (delta%2 && p != (const ut8*)keys)? p[-1]: p[1];
 	}
 	len = 1;
 	buf[0] = ch;
@@ -478,20 +477,9 @@ R_API void r_core_visual_show_char (RCore *core, char ch) {
 }
 
 R_API void r_core_visual_seek_animation (RCore *core, ut64 addr) {
+	r_core_seek (core, addr, 1);
 	if (r_config_get_i (core->config, "scr.feedback")<1)
 		return;
-#if 0
-	int i, ns = 90000;
-	const char *scmd = (addr > core->offset)? "so": "s-4";
-	for (i=0;i<5;i++) {
-		r_core_cmd0 (core, scmd);
-		r_core_visual_refresh (core);
-		r_cons_flush();
-		r_sys_usleep (ns);
-		ns -= 1000;
-	}
-	r_core_seek (core, addr, 1);
-#else
 	if (core->offset == addr)
 		return;
 	r_cons_gotoxy (1, 2);
@@ -506,8 +494,6 @@ R_API void r_core_visual_seek_animation (RCore *core, ut64 addr) {
 	}
 	r_cons_flush();
 	r_sys_usleep (90000);
-#endif
-	r_core_seek (core, addr, 1);
 }
 
 static void setprintmode (RCore *core, int n) {
@@ -663,21 +649,81 @@ R_API int r_core_visual_xrefs_X (RCore *core) {
 
 #if __WINDOWS__ && !__CYGWIN__
 void SetWindow(int Width, int Height) {
-    COORD coord;
-    coord.X = Width;
-    coord.Y = Height;
+	COORD coord;
+	coord.X = Width;
+	coord.Y = Height;
 
-    SMALL_RECT Rect;
-    Rect.Top = 0;
-    Rect.Left = 0;
-    Rect.Bottom = Height - 1;
-    Rect.Right = Width - 1;
+	SMALL_RECT Rect;
+	Rect.Top = 0;
+	Rect.Left = 0;
+	Rect.Bottom = Height - 1;
+	Rect.Right = Width - 1;
 
-    HANDLE Handle = GetStdHandle(STD_OUTPUT_HANDLE);
-    SetConsoleScreenBufferSize(Handle, coord);
-    SetConsoleWindowInfo(Handle, TRUE, &Rect);
+	HANDLE Handle = GetStdHandle(STD_OUTPUT_HANDLE);
+	SetConsoleScreenBufferSize(Handle, coord);
+	SetConsoleWindowInfo(Handle, TRUE, &Rect);
 }
 #endif
+
+// unnecesarily public
+char *getcommapath(RCore *core) {
+	char *cwd;
+	const char *dir = r_config_get (core->config, "dir.projects");
+	const char *prj = r_config_get (core->config, "file.project");
+	if (dir && *dir && prj && *prj) {
+		char *abspath = r_file_abspath (dir);
+		/* use prjdir as base directory for comma-ent files */
+		cwd = r_str_newf ("%s"R_SYS_DIR"%s.d", abspath, prj);
+		free (abspath);
+	} else {
+		/* use cwd as base directory for comma-ent files */
+		cwd = r_sys_getdir ();
+	}
+	return cwd;
+}
+
+static void visual_comma(RCore *core) {
+	ut64 addr = core->offset + curset? cursor: 0;
+	char *comment, *cwd, *cmtfile;
+	comment = r_meta_get_string (core->anal, R_META_TYPE_COMMENT, addr);
+	cmtfile = r_str_between (comment, ",(", ")");
+	cwd = getcommapath (core);
+	if (!cmtfile) {
+		char *fn;
+		showcursor (core, true);
+		fn = r_cons_input ("<comment-file> ");
+		showcursor (core, false);
+		if (fn && *fn) {
+			cmtfile = strdup (fn);
+			if (!comment || !*comment) {
+				comment = r_str_newf (",(%s)", fn);
+				r_meta_set_string (core->anal, R_META_TYPE_COMMENT, addr, comment);
+			} else {
+				// append filename in current comment
+				char *nc = r_str_newf ("%s ,(%s)", comment, fn);
+				r_meta_set_string (core->anal, R_META_TYPE_COMMENT, addr, nc);
+				free (nc);
+			}
+		}
+		free (fn);
+	}
+	if (cmtfile) {
+		char *cwf = r_str_newf ("%s"R_SYS_DIR"%s", cwd, cmtfile);
+		char *odata = r_file_slurp (cwf, NULL);
+		char *data = r_core_editor (core, NULL, odata);
+		r_file_dump (cwf, (const ut8*)data, -1, 0);
+		free (data);
+		free (odata);
+		free (cwf);
+	} else {
+		eprintf ("No commafile found.\n");
+	}
+	free (comment);
+}
+
+static bool isDisasmPrint(int mode) {
+	return (mode == 1 || mode == 2);
+}
 
 R_API int r_core_visual_cmd(RCore *core, int ch) {
 	RAsmOp op;
@@ -712,7 +758,6 @@ R_API int r_core_visual_cmd(RCore *core, int ch) {
 			} else {
 				r_core_visual_seek_animation (core, off);
 				cursor = 0;
-				//r_core_seek (core, off, 1);
 			}
 			r_core_block_read (core, 1);
 		}
@@ -726,7 +771,7 @@ R_API int r_core_visual_cmd(RCore *core, int ch) {
 		SetWindow(81,40);
 		break;
 #endif
-	case 0x0d:
+	case 0x0d: // "enter" "\\n" "newline"
 		{
 			RAnalOp *op;
 			int wheel = r_config_get_i (core->config, "scr.wheel");
@@ -887,6 +932,9 @@ R_API int r_core_visual_cmd(RCore *core, int ch) {
 			}
 		} }
 		showcursor (core, false);
+		break;
+	case ',':
+		visual_comma (core);
 		break;
 	case 'T':
 		if (r_sandbox_enable (0)) {
@@ -1068,13 +1116,13 @@ R_API int r_core_visual_cmd(RCore *core, int ch) {
 				} else {
 					offset += r_io_desc_size (core->io,
 							core->file->desc)
-						- core->blocksize + 2*scols;
+						- core->blocksize + 2 * scols;
 					ret = r_core_seek (core, offset, 1);
 				}
 			} else {
 				ret = r_core_seek (core,
 						r_io_desc_size (core->io, core->file->desc)
-						- core->blocksize + 2*scols, 1);
+						- core->blocksize + 2 * scols, 1);
 			}
 		} else {
 			ret = -1;
@@ -1130,7 +1178,7 @@ R_API int r_core_visual_cmd(RCore *core, int ch) {
 		break;
 	case 'j':
 		if (curset) {
-			if (core->printidx == 1 || core->printidx == 2) { // these are dis modes
+			if (isDisasmPrint (core->printidx)) {
 				// we read the size of the current mnemonic
 				cols = r_asm_disassemble (core->assembler,
 					&op, core->block+cursor, 32);
@@ -1149,7 +1197,7 @@ R_API int r_core_visual_cmd(RCore *core, int ch) {
 				cursor += cols;
 				ocursor = -1;
 				offscreen = (core->cons->rows - 3) * cols;
-				if (cursor > offscreen ) {
+				if (cursor > offscreen) {
 					r_core_seek (core, core->offset+cols, 1);
 					cursor-=cols;
 				}
@@ -1158,26 +1206,35 @@ R_API int r_core_visual_cmd(RCore *core, int ch) {
 			int times = wheelspeed;
 			if (times<1) times = 1;
 			while (times--) {
-				if (core->printidx == 1 || core->printidx == 2) {
-					cols = r_asm_disassemble (core->assembler,
-							&op, core->block, 32);
+				if (isDisasmPrint(core->printidx)) {
+					RAnalFunction *f = NULL;
+					if (true) {
+						f = r_anal_get_fcn_in (core->anal, core->offset, 0);
+					}
+					if (f && f->folded) {
+						cols = core->offset - f->addr + f->size;
+					} else {
+						r_asm_set_pc (core->assembler, core->offset);
+						cols = r_asm_disassemble (core->assembler,
+								&op, core->block, 32);
+					}
 					if (cols<1) cols = op.size;
 					if (cols<1) cols = 1;
 				}
-				r_core_seek (core, core->offset+cols, 1);
+				r_core_seek (core, core->offset + cols, 1);
 			}
 		}
 		break;
 	case 'J':
 		if (curset) {
-			if (core->printidx == 1 || core->printidx == 2) {
+			if (isDisasmPrint (core->printidx)) {
 				cols = r_asm_disassemble (core->assembler,
 					&op, core->block+cursor, 32);
 				if (cols<1) cols = 1;
 			}
 			if (ocursor==-1) ocursor = cursor;
 			cursor += cols;
-			if (core->printidx == 1 || core->printidx == 2) {
+			if (isDisasmPrint (core->printidx)) {
 				if (cursor + core->offset > last_printed_address) {
 					// we seek with the size of the first mnemo
 					cols = r_asm_disassemble (core->assembler,
@@ -1197,13 +1254,14 @@ R_API int r_core_visual_cmd(RCore *core, int ch) {
 		break;
 	case 'k':
 		if (curset) {
-			if (core->printidx == 1 || core->printidx == 2)
-				cols = prevopsz (core, core->offset+cursor);
+			if (isDisasmPrint (core->printidx)) {
+				cols = prevopsz (core, core->offset + cursor);
+			}
 			cursor -= cols;
 			ocursor = -1;
 			if (cursor<0) {
-				if (core->offset>=cols) {
-					r_core_seek (core, core->offset-cols, 1);
+				if (core->offset >= cols) {
+					r_core_seek (core, core->offset - cols, 1);
 					cursor += cols;
 				}
 			}
@@ -1211,20 +1269,27 @@ R_API int r_core_visual_cmd(RCore *core, int ch) {
 			int times = wheelspeed;
 			if (times<1) times = 1;
 			while (times--) {
-				if (core->printidx == 1 || core->printidx == 2) {
-					cols = prevopsz (core, core->offset);
-				}
-				if (core->offset >= cols)
-					r_core_seek (core, core->offset-cols, 1);
-				else r_core_seek (core, 0, 1);
+				if (isDisasmPrint (core->printidx)) {
+					RAnalFunction *f = r_anal_get_fcn_in (core->anal, core->offset, R_ANAL_FCN_TYPE_NULL);
+					if (f && f->folded) {
+						cols = core->offset - f->addr; // + f->size;
+						if (cols<1) {
+							cols = 4;
+						}
+					} else {
+						cols = prevopsz (core, core->offset);
+					}
+				} else cols = 1;
+				r_core_seek (core, core->offset - cols, 1);
 			}
 		}
 		break;
 	case 'K':
 		if (curset) {
-			if (ocursor==-1) ocursor=cursor;
-			if (core->printidx == 1 || core->printidx == 2)
+			if (ocursor==-1) ocursor = cursor;
+			if (isDisasmPrint (core->printidx)) {
 				cols = prevopsz (core, core->offset+cursor);
+			}
 			cursor -= cols;
 			if (cursor<0) {
 				if (core->offset>=cols) {
@@ -1305,8 +1370,7 @@ R_API int r_core_visual_cmd(RCore *core, int ch) {
 					r_core_cmd (core, ".dr*", 0);
 				}
 			} else {
-				/* step over not support for esil yet */
-				r_core_cmd (core, "aes", 0);
+				r_core_cmd (core, "aeso", 0);
 				r_core_cmd (core, ".ar*", 0);
 			}
 		}
@@ -1412,10 +1476,10 @@ R_API int r_core_visual_cmd(RCore *core, int ch) {
 			r_core_seek (core, core->offset+cursor, 1);
 			cursor = 0;
 		} else {
-			ut64 addr = r_debug_reg_get (core->dbg, "pc");
+			ut64 addr = r_debug_reg_get (core->dbg, "PC");
 			if (addr) {
 				r_core_seek (core, addr, 1);
-				r_core_cmdf (core, "ar `arn pc`=0x%"PFMT64x, addr);
+				r_core_cmdf (core, "ar `arn PC`=0x%"PFMT64x, addr);
 			} else {
 				r_core_seek (core, r_num_get (core->num, "entry0"), 1);
 				//r_core_cmd (core, "s entry0", 0);
@@ -1430,7 +1494,7 @@ R_API int r_core_visual_cmd(RCore *core, int ch) {
 		r_core_visual_prompt_input (core);
 		break;
 	case '_':
-		r_core_visual_hud (core);
+		r_core_visual_hudstuff (core);
 		break;
 	case ';':
 		r_cons_printf ("Enter a comment: ('-' to remove, '!' to use $EDITOR)\n");
@@ -1445,7 +1509,6 @@ R_API int r_core_visual_cmd(RCore *core, int ch) {
 			ut64 addr = core->offset;
 			if (curset) {
 				addr += cursor;
-
 				r_core_seek (core, addr, 0);
 				r_core_cmdf (core, "s 0x%"PFMT64x, addr);
 			}
@@ -1481,22 +1544,37 @@ R_API int r_core_visual_cmd(RCore *core, int ch) {
 	case 'u':
 		{
 		ut64 off = r_io_sundo (core->io, core->offset);
-		if (off != UT64_MAX)
-			//r_core_seek (core, off, 1);
+		if (off != UT64_MAX) {
 			r_core_visual_seek_animation (core, off);
-		else eprintf ("Cannot undo\n");
+		} else {
+			eprintf ("Cannot undo\n");
+		}
 		}
 		break;
 	case 'U':
 		{
 		ut64 off = r_io_sundo_redo (core->io);
-		if (off != UT64_MAX)
-			//r_core_seek (core, off, 1);
+		if (off != UT64_MAX) {
 			r_core_visual_seek_animation (core, off);
+		}
 		}
 		break;
 	case 'z':
-		r_config_toggle (core->config, "asm.cmtfold");
+		{
+		RAnalFunction *fcn;
+		if (curset) {
+			fcn = r_anal_get_fcn_in (core->anal,
+				core->offset+cursor, R_ANAL_FCN_TYPE_NULL);
+		} else {
+			fcn = r_anal_get_fcn_in (core->anal,
+				core->offset, R_ANAL_FCN_TYPE_NULL);
+		}
+		if (fcn) {
+			fcn->folded = !fcn->folded;
+		} else {
+			r_config_toggle (core->config, "asm.cmtfold");
+		}
+		}
 		break;
 	case 'Z':
 		if (zoom && cursor) {
@@ -1507,7 +1585,8 @@ R_API int r_core_visual_cmd(RCore *core, int ch) {
 		zoom = !zoom;
 		break;
 	case '?':
-		visual_help();
+		if (visual_help ()=='?')
+			r_core_visual_hud (core);
 		break;
 	case 0x1b:
 	case 'q':
@@ -1550,7 +1629,7 @@ R_API void r_core_visual_title (RCore *core, int color) {
 	}
 
 	if (r_config_get_i (core->config, "cfg.debug")) {
-		ut64 curpc = r_debug_reg_get (core->dbg, "pc");
+		ut64 curpc = r_debug_reg_get (core->dbg, "PC");
 		if (curpc && curpc != UT64_MAX && curpc != oldpc) {
 			// check dbg.follow here
 			int follow = (int)(st64)r_config_get_i (core->config, "dbg.follow");
@@ -1611,14 +1690,8 @@ R_API void r_core_visual_title (RCore *core, int color) {
 	if (color) r_cons_strcat (Color_RESET);
 }
 
-static void r_core_visual_refresh (RCore *core) {
-	int w, h;
-	const char *vi, *vcmd;
-	if (!core) return;
-	w = r_cons_get_size (&h);
-	r_print_set_cursor (core->print, curset, ocursor, cursor);
-	core->cons->blankline = true;
-
+static int r_core_visual_responsive (RCore *core) {
+	int h, w = r_cons_get_size (&h);
 	if (r_config_get_i (core->config, "scr.responsive")) {
 		if (w<110) {
 			r_config_set_i (core->config, "asm.cmtright", 0);
@@ -1649,22 +1722,29 @@ static void r_core_visual_refresh (RCore *core) {
 			r_config_set_i (core->config, "asm.bytes", 1);
 		}
 	}
+	return w;
+}
+
+static void r_core_visual_refresh (RCore *core) {
+	int w;
+	const char *vi, *vcmd;
+	if (!core) return;
+	r_print_set_cursor (core->print, curset, ocursor, cursor);
+	core->cons->blankline = true;
+
+	w = r_core_visual_responsive (core);
 	if (r_config_get_i (core->config, "dbg.slow")) {
 		printfmt[2] = debugfmt_extra;
 	} else {
 		printfmt[2] = debugfmt_default;
 	}
 
-	/* hack to blank last line. move prompt here? */
-	//r_cons_fill_line ();
 	if (autoblocksize) {
 		r_cons_gotoxy (0, 0);
-		r_cons_flush ();
 	} else {
 		r_cons_clear ();
-		r_cons_flush ();
 	}
-
+	r_cons_flush ();
 	r_cons_print_clear ();
 
 	vi = r_config_get (core->config, "cmd.cprompt");
@@ -1753,7 +1833,7 @@ R_API int r_core_visual(RCore *core, const char *input) {
 			const int bytes = r_config_get_i (core->config, "stack.bytes");
 			if (cmdvhex && *cmdvhex) {
 				snprintf (debugstr, sizeof(debugstr),
-					"f tmp;sr sp;%s;dr=;s-;"
+					"f tmp;sr SP;%s;dr=;s-;"
 					"s tmp;f-tmp;pd $r", cmdvhex);
 				debugstr[sizeof(debugstr)-1]=0;
 			} else {
@@ -1767,18 +1847,16 @@ R_API int r_core_visual(RCore *core, const char *input) {
 					default: pxw = "px"; break;
 					}
 				}
-				snprintf (debugstr, sizeof(debugstr),
-					"f tmp;sr sp;%s %d@$$-%d;dr=;s-;"
+				snprintf (debugstr, sizeof (debugstr),
+					"f tmp;sr SP;%s %d@$$-%d;dr=;s-;"
 					"s tmp;f-tmp;pd $r",
-					pxa?"pxa":pxw, size,
-					delta);
+					pxa? "pxa": pxw, size, delta);
 			}
 			printfmt[2] = debugstr;
 		}
 		wheel = r_config_get_i (core->config, "scr.wheel");
 		r_cons_show_cursor (false);
-		if (wheel)
-			r_cons_enable_mouse (true);
+		if (wheel) r_cons_enable_mouse (true);
 		core->cons->event_data = core;
 		core->cons->event_resize = (RConsEvent)r_core_visual_refresh;
 		flags = core->print->flags;

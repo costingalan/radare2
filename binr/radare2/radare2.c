@@ -73,7 +73,22 @@ static ut64 getBaddrFromDebugger(RCore *r, const char *file) {
 	RDebugMap *map;
 	if (!r || !r->io || !r->io->desc)
 		return 0LL;
+#if __WINDOWS__
+	typedef struct {
+		int pid;
+		int tid;
+		PROCESS_INFORMATION pi;
+	} RIOW32Dbg;
+	RIODesc *d = r->io->desc;
+	if (!strcmp ("w32dbg", d->plugin->name)) {
+		RIOW32Dbg *g = d->data;
+		r->io->desc->fd = g->pid;
+		//r_debug_attach (r->dbg,g->pid);  // no es necesario ya se hacen unos cuantos attach antes y despues ....
+	}
+	return r->io->winbase;
+#else
 	r_debug_attach (r->dbg, r->io->desc->fd);
+#endif
 	r_debug_map_sync (r->dbg);
 	abspath = r_file_abspath (file);
 	if (!abspath) abspath = strdup (file);
@@ -153,6 +168,7 @@ static int main_help(int line) {
 		" MAGICPATH    "R_MAGIC_PATH"\n"
 		" R_DEBUG      if defined, show error messages and crash signal\n"
 		" VAPIDIR      path to extra vapi directory\n"
+		" R2_NOPLUGINS do not load r2 shared plugins\n"
 		"Paths:\n"
 		" PREFIX       "R2_PREFIX"\n"
 		" INCDIR       "R2_INCDIR"\n"
@@ -209,7 +225,7 @@ int main(int argc, char **argv, char **envp) {
 	RThread *rabin_th = NULL;
 #endif
 	RListIter *iter;
-	char *cmdn;
+	char *cmdn, *tmp;
 	RCoreFile *fh = NULL;
 	const char *patchfile = NULL;
 	const char *prj = NULL;
@@ -221,7 +237,7 @@ int main(int argc, char **argv, char **envp) {
 	int fullfile = 0;
 	int has_project;
 	int prefile = 0;
-	int zerosep = 0;
+	bool zerosep = false;
 	int help = 0;
 	int run_anal = 1;
 	int run_rc = 1;
@@ -385,6 +401,10 @@ int main(int argc, char **argv, char **envp) {
 		return main_help (0);
 	}
 
+	if ((tmp = r_sys_getenv ("R2_NOPLUGINS"))) {
+		r_config_set_i (r.config, "cfg.plugins", 0);
+		free (tmp);
+	}
 	if (r_config_get_i (r.config, "cfg.plugins")) {
 		r_core_loadlibs (&r, R_CORE_LOADLIBS_ALL, NULL);
 	}
@@ -471,6 +491,7 @@ int main(int argc, char **argv, char **envp) {
 		}
 	} else if (strcmp (argv[optind-1], "--")) {
 		if (debug) {
+			if (asmbits) r_config_set (r.config, "asm.bits", asmbits);
 			r_config_set (r.config, "search.in", "raw"); // implicit?
 			r_config_set_i (r.config, "io.va", false); // implicit?
 			r_config_set (r.config, "cfg.debug", "true");
@@ -561,6 +582,9 @@ int main(int argc, char **argv, char **envp) {
 							eprintf ("bits %d\n", obj->info->bits);
 					}
 					r_core_cmd0 (&r, ".dm*");
+					// Set Thumb Mode if necessary
+					r_core_cmd0 (&r, "dr? thumb;?? e asm.bits=16");
+					r_cons_reset ();
 				}
 			}
 		}
@@ -681,10 +705,12 @@ int main(int argc, char **argv, char **envp) {
 			char *path = strdup (r_config_get (r.config, "file.path"));
 			char *sha1 = strdup (r_config_get (r.config, "file.sha1"));
 			has_project = r_core_project_open (&r, r_config_get (r.config, "file.project"));
-			if (has_project)
+			if (has_project) {
 				r_config_set (r.config, "bin.strings", "false");
-			if (r_core_hash_load (&r, r.file->desc->name) == false)
-				{} //eprintf ("WARNING: File hash not calculated\n");
+			}
+			if (r_core_hash_load (&r, r.file->desc->name) == false) {
+				//eprintf ("WARNING: File hash not calculated\n");
+			}
 			nsha1 = r_config_get (r.config, "file.sha1");
 			npath = r_config_get (r.config, "file.path");
 			if (sha1 && *sha1 && strcmp (sha1, nsha1))
@@ -693,6 +719,11 @@ int main(int argc, char **argv, char **envp) {
 				eprintf ("WARNING: file.path change: %s => %s\n", path, npath);
 			free (sha1);
 			free (path);
+			if (has_project && !zerosep) {
+				r_config_set_i (r.config, "scr.interactive", true);
+				r_config_set_i (r.config, "scr.prompt", true);
+				r_config_set_i (r.config, "scr.color", true);
+			}
 		}
 
 		r_list_foreach (evals, iter, cmdn) {
@@ -775,7 +806,6 @@ int main(int argc, char **argv, char **envp) {
 		// no flagspace selected by default the beginning
 		r.flags->space_idx = -1;
 		for (;;) {
-			r.zerosep = zerosep;
 #if USE_THREADS
 			do {
 				int err = r_core_prompt (&r, false);
@@ -824,10 +854,10 @@ int main(int argc, char **argv, char **envp) {
 		}
 	}
 #if __UNIX__
-	if (isatty(0)) {
+	if (isatty (0)) {
 #endif
-		 if (r_config_get_i(r.config, "scr.histsave") &&
-				r_config_get_i(r.config, "scr.interactive") &&
+		 if (r_config_get_i (r.config, "scr.histsave") &&
+				r_config_get_i (r.config, "scr.interactive") &&
 				!r_sandbox_enable (0))
 			r_line_hist_save (R2_HOMEDIR"/history");
 #if __UNIX__
@@ -844,5 +874,6 @@ int main(int argc, char **argv, char **envp) {
 	r_core_fini (&r);
 	r_cons_set_raw (0);
 	free (file);
+	r_str_const_free ();
 	return ret;
 }

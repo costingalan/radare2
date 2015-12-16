@@ -121,7 +121,7 @@ typedef struct r_io_t {
 	int raised;
 	int va;
 	int raw;
-	int vio;		//remove that when vio replaces the old stuff
+	int vio; // remove that when vio replaces the old stuff
 	int sectonly;
 	char *referer;
 	char *redirect;
@@ -146,6 +146,7 @@ typedef struct r_io_t {
 	int ff;
 	int autofd;
 	int aslr;
+	ut64 winbase;
 	char *runprofile;
 	char *args;
 	/* Core Callbacks  (used by rap) */
@@ -310,22 +311,22 @@ R_API int r_io_is_valid_offset (RIO *io, ut64 offset, int hasperm);
 R_API int r_io_set_fd(RIO *io, RIODesc *fd);
 R_API int r_io_set_fdn(RIO *io, int fd);
 
-R_API RIODesc *r_io_use_fd (RIO *io, int fd);
+R_API RIODesc *r_io_use_fd(RIO *io, int fd);
 R_API int r_io_use_desc(RIO *io, RIODesc *fd);
 
-R_API const ut8* r_io_get_raw (RIO *io, ut64 addr, int *len);
+R_API const ut8* r_io_get_raw(RIO *io, ut64 addr, int *len);
 R_API RBuffer *r_io_read_buf(RIO *io, ut64 addr, int len);
-R_API int r_io_vread (RIO *io, ut64 vaddr, ut8 *buf, int len);
+R_API int r_io_vread(RIO *io, ut64 vaddr, ut8 *buf, int len);
 R_API int r_io_read_internal(RIO *io, ut8 *buf, int len);
-R_API int r_io_mread (RIO *io, int fd, ut64 maddr, ut8 *buf, int len);
-R_API int r_io_pread (RIO *io, ut64 paddr, ut8 *buf, int len);
+R_API int r_io_mread(RIO *io, int fd, ut64 maddr, ut8 *buf, int len);
+R_API int r_io_pread(RIO *io, ut64 paddr, ut8 *buf, int len);
 R_API int r_io_read(RIO *io, ut8 *buf, int len);
 R_API int r_io_read_at(RIO *io, ut64 addr, ut8 *buf, int len);
 R_API ut64 r_io_read_i(RIO *io, ut64 addr, int sz, int endian);
 R_API int r_io_write(RIO *io, const ut8 *buf, int len);
 R_API int r_io_write_at(RIO *io, ut64 addr, const ut8 *buf, int len);
-R_API int r_io_mwrite (RIO *io, int fd, ut64 maddr, ut8 *buf, int len);
-R_API int r_io_pwrite (RIO *io, ut64 paddr, const ut8 *buf, int len);
+R_API int r_io_mwrite(RIO *io, int fd, ut64 maddr, ut8 *buf, int len);
+R_API int r_io_pwrite(RIO *io, ut64 paddr, const ut8 *buf, int len);
 R_API ut64 r_io_seek(RIO *io, ut64 offset, int whence);
 R_API int r_io_system(RIO *io,  const char *cmd);
 R_API int r_io_close(RIO *io, RIODesc *fd);
@@ -352,7 +353,7 @@ R_API int r_io_cache_read(RIO *io, ut64 addr, ut8 *buf, int len);
 
 /* io/map.c */
 R_API void r_io_map_init(RIO *io);
-R_API _Bool r_io_map_overlaps (RIO *io, RIODesc *fd, RIOMap *map);
+R_API bool r_io_map_overlaps (RIO *io, RIODesc *fd, RIOMap *map);
 R_API ut64 r_io_map_next(RIO *io, ut64 addr);
 R_API RIOMap *r_io_map_add(RIO *io, int fd, int flags, ut64 delta, ut64 offset, ut64 size);
 R_API int r_io_map_del_at(RIO *io, ut64 addr);
@@ -376,7 +377,7 @@ R_API int r_io_map_exists_for_offset (RIO *io, ut64 off);
 R_API int r_io_map_write_update(RIO *io, int fd, ut64 addr, ut64 len);
 R_API int r_io_map_truncate_update(RIO *io, int fd, ut64 sz);
 R_API int r_io_map_count (RIO *io);
-R_API void r_io_map_list (RIO *io);
+R_API void r_io_map_list (RIO *io, int rad);
 
 /* io/section.c */
 R_API void r_io_section_init(RIO *io);
@@ -385,6 +386,7 @@ R_API RIOSection *r_io_section_get_name(RIO *io, const char *name);
 R_API RIOSection *r_io_section_get_i(RIO *io, int idx);
 R_API RIOSection *r_io_section_getv(RIO *io, ut64 vaddr);
 R_API RIOSection *r_io_section_mget(RIO *io, ut64 maddr);
+R_API RIOSection *r_io_section_mget_prev(RIO *io, ut64 maddr);
 R_API RIOSection *r_io_section_vget(RIO *io, ut64 addr);
 R_API RIOSection *r_io_section_pget(RIO *io, ut64 addr);
 R_API int r_io_section_set_archbits(RIO *io, ut64 addr, const char *arch, int bits);
